@@ -31,7 +31,7 @@ internal — реализация клиента, GATT, транспорт, fram
 proto — схемы RPC; сгенерированные PB.Main-типы пока являются частью низкоуровневого публичного контракта.
 Публичные модели: DeviceInfo, PowerInfo, StorageEntry, TransferProgress, TransferResult, FlipperRpcException. RpcClient маршрутизирует сведения, Ping и Storage по command_id с ограниченным буфером, timeout, проверкой статуса/содержимого и завершения серии.
 Тесты находятся в src/test/kotlin. consumer-rules.pro подключён к Android Library для правил R8 потребителя.
-UI, Hilt, Activity и тема находятся в соседнем sample и не входят в модуль.
+UI находится в отдельной Compose-библиотеке flipper-ui; Hilt, Activity, тема и внешняя навигация — в sample/целевом хосте. В core-модуль они не входят.
 
 ## Подключение
 

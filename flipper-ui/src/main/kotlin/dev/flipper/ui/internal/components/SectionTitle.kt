@@ -1,4 +1,4 @@
-package dev.flipper.zerokit.sample.presentation.components
+package dev.flipper.ui.internal.components
 
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,7 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun SectionTitle(text: String, markerColor: Color? = null) {
+internal fun SectionTitle(text: String, markerColor: Color? = null) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
         if (markerColor != null) {
             Spacer(

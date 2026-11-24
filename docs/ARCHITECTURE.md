@@ -3,7 +3,8 @@
 ## Модули
 
 - :flipper — Android Library: BLE-сопряжение, GATT, RX/TX, protobuf и RPC-framing. Namespace dev.flipper.
-- :sample — отдельное диагностическое приложение: UI, Hilt, тема/DataStore, кнопка ping и демонстрационные сведения/файлы.
+- :flipper-ui — Compose Android Library, namespace dev.flipper.ui: FlipperScreen, внутренние вкладки, ViewModel, системные разрешения/SAF. Без Hilt, Activity, NavController и нижнего бара.
+- :sample — хост: Hilt, тема/DataStore, NavHost с одним destination Flipper, политика ConnectionSession. Демонстрационные сведения/файлы удалены ранее.
 
 ## Публичная поверхность
 
@@ -43,4 +44,10 @@ Connected означает завершённые GATT-подписки; RPC_STA
 getDeviceInfo проверяет readiness, отправляет запрос в исходную GATT-сессию и ожидает полную серию с timeout. Disconnect/RPC NOT_ACTIVE завершает ожидающие запросы ошибкой; caller cancellation сохраняется как отмена.
 
 BLE/framing и схемы перенесены из protobuf-framing проекта коллеги. Состояние и ограничения DeviceInfo описаны в BASELINE.md.
-Реализован пробный сквозной сценарий DeviceInfo/PowerInfo/Ping/Storage. Storage сериализован, потоки телефона принадлежат sample, клиент связан с GATT-сессией. ConnectionSession в sample сохраняет последнее успешно подключённое устройство и делает одну попытку при входе Activity. Физический прогон и ограничения — в PROTOTYPE.md; сведения — в DEVICE_INFO.md.
+Реализован пробный сквозной сценарий DeviceInfo/PowerInfo/Ping/Storage. Storage сериализован; URI/потоками телефона управляет flipper-ui через application ContentResolver, клиент связан с GATT-сессией. ConnectionSession в sample сохраняет последнее успешно подключённое устройство и делает одну попытку при входе/возврате во внешнее destination фичи. Физический прогон и ограничения — в PROTOTYPE.md; сведения — в DEVICE_INFO.md.
+
+## Встраиваемая UI-фича
+
+Одна внешняя точка FlipperScreen, две внутренние вкладки Device/Files. ViewModelStoreOwner — внешний NavBackStackEntry, поэтому внутреннее переключение не уничтожает передачу. FlipperConnectionController — необязательная политика хоста: connect/disconnect и lifecycle entry/leave с учётом конфигурации. Без него UI выполняет прямое подключение, auto reconnect задаёт хост. Пример и контракт — flipper-ui/README.md.
+
+Тема, глобальная навигация и lifetime Flipper принадлежат хосту. Core flipper остаётся без Compose/Hilt, UI-library тоже не требует Hilt. Ресурсы UI имеют префикс flipper_ для слияния с хостом. ViewModel не хранит Activity/Context.

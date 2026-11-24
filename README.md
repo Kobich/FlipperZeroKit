@@ -8,15 +8,16 @@
 ## Модули
 
 - `:flipper` — Android Library: сканирование, сопряжение, GATT, RX/TX, protobuf-схемы и RPC-framing. Без Compose и Hilt.
-- `:sample` — приложение для ручной проверки. Compose и Hilt остаются здесь. Пробный интерфейс: DeviceInfo, PowerInfo/заряд, PingResponse, реальные каталоги и передача файлов через SAF с прогрессом и сверкой MD5.
+- `:flipper-ui` — Android Library с Compose-экраном FlipperScreen: один вход в фичу, внутренние вкладки «Устройство»/«Файлы», SAF и состояние операций. Без Hilt, Activity и глобальной навигации.
+- `:sample` — демонстрационный хост с одним пунктом Flipper на нижнем баре. Здесь Hilt, тема и политика сохранения/переподключения; он встраивает FlipperScreen как destination.
 
 Актуальная основа — ветка protobuf-framing (5d4be58), где найдены framing и ping. ble-transport уже влита в main.
 В библиотеке доступны getDeviceInfo, getPowerInfo, ping, listFiles, downloadFile, uploadFile и raw RPC. Внутренний RpcClient маршрутизирует ответы по command_id; файловые серии передаются потоком. Полировка и физическая приёмка ещё предстоят.
-Ping перенесён в sample; по проверке пользователя работает, наш физический прогон ещё предстоит.
+Пользователь сообщил о первом успешном прогоне на Android 16 и отдельно подтвердил скачивание. Отправку пока не проверял; autoreconnect и ошибки требуют отдельного прогона. Статус и ближайшая работа — [ROADMAP.md](docs/ROADMAP.md), доказательства — [VALIDATION.md](docs/VALIDATION.md).
 
-**Как сразу проверить:** [пробный прогон и ограничения](docs/PROTOTYPE.md). Готовый APK: sample/build/outputs/apk/debug/sample-debug.apk.
+**Как сразу проверить:** [40 тестов с шагами, крайними случаями и ограничениями](docs/PROTOTYPE.md). Контрольные файлы — test-data/manual, архив — artifacts/flipper-test-files.zip. Готовый APK: sample/build/outputs/apk/debug/sample-debug.apk.
 
-Структура библиотеки и пример использования: [flipper/README.md](flipper/README.md). Публичный API находится в api, реализация — в internal.
+Core API: [flipper/README.md](flipper/README.md). Встраивание готовой UI-фичи: [flipper-ui/README.md](flipper-ui/README.md). Оба модуля — библиотеки; приложение-хост владеет клиентом и внешним нижним баром.
 
 ## Подключение и lifecycle
 

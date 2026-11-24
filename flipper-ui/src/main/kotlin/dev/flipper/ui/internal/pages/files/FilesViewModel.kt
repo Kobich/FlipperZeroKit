@@ -1,19 +1,16 @@
-package dev.flipper.zerokit.sample.presentation.pages.files
+package dev.flipper.ui.internal.pages.files
 
-import android.content.Context
+import android.content.ContentResolver
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.flipper.api.Flipper
 import dev.flipper.api.model.BleConnectionState
 import dev.flipper.api.model.RpcStatus
 import java.io.IOException
-import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -26,10 +23,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-@HiltViewModel
-class FilesViewModel @Inject constructor(
+internal class FilesViewModel constructor(
     private val flipper: Flipper,
-    @param:ApplicationContext private val context: Context,
+    private val contentResolver: ContentResolver,
 ) : ViewModel() {
     private val _state = MutableStateFlow(FilesUiState())
     val state = _state.asStateFlow()
@@ -81,7 +77,7 @@ class FilesViewModel @Inject constructor(
                 val selected = withContext(Dispatchers.IO) {
                     var name = "upload.bin"
                     var size: Long? = null
-                    context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+                    contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { cursor ->
                         if (cursor.moveToFirst()) {
                             val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
                             val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
@@ -111,7 +107,7 @@ class FilesViewModel @Inject constructor(
         transfer = viewModelScope.launch {
             try {
                 val result = withContext(Dispatchers.IO) {
-                    val input = context.contentResolver.openInputStream(selected.uri)
+                    val input = contentResolver.openInputStream(selected.uri)
                         ?: throw IOException("Не удалось открыть выбранный файл")
                     input.use {
                         flipper.uploadFile(target, it, selected.sizeBytes) { progress ->
@@ -142,7 +138,7 @@ class FilesViewModel @Inject constructor(
                 if (expectedDevice == null || _state.value.deviceAddress != expectedDevice || !_state.value.rpcReady)
                     throw IOException("Подключение изменилось во время выбора файла. Выбери файл заново")
                 val result = withContext(Dispatchers.IO) {
-                    val output = context.contentResolver.openOutputStream(destination, "w")
+                    val output = contentResolver.openOutputStream(destination, "w")
                         ?: throw IOException("Не удалось открыть место сохранения")
                     output.use {
                         flipper.downloadFile(path, it) { progress ->
@@ -165,7 +161,7 @@ class FilesViewModel @Inject constructor(
     }
 
     private suspend fun removePartial(uri: Uri): Boolean = withContext(NonCancellable + Dispatchers.IO) {
-        try { DocumentsContract.deleteDocument(context.contentResolver, uri) } catch (_: Exception) { false }
+        try { DocumentsContract.deleteDocument(contentResolver, uri) } catch (_: Exception) { false }
     }
     private fun finish(message: String) { _state.update { it.copy(transfer = it.transfer?.copy(active = false, message = message)) } }
     fun cancelTransfer() { transfer?.cancel() }

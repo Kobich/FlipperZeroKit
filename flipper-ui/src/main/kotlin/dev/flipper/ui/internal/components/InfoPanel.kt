@@ -1,4 +1,4 @@
-package dev.flipper.zerokit.sample.presentation.components
+package dev.flipper.ui.internal.components
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -14,7 +14,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun InfoPanel(content: @Composable () -> Unit) {
+internal fun InfoPanel(content: @Composable () -> Unit) {
     OutlinedCard(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -24,7 +24,7 @@ fun InfoPanel(content: @Composable () -> Unit) {
 }
 
 @Composable
-fun InfoRow(label: String, value: String) {
+internal fun InfoRow(label: String, value: String) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Text(
             label,

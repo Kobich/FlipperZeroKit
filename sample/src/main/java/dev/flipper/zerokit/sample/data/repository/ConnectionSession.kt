@@ -6,6 +6,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.flipper.api.Flipper
+import dev.flipper.ui.FlipperConnectionController
 import dev.flipper.api.FlipperPermissions
 import dev.flipper.api.model.BleConnectionState
 import dev.flipper.api.model.BleDevice
@@ -16,12 +17,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
-/** Process-owned client policy. One reconnect attempt per Activity foreground entry. */
+/** Process-owned client policy. One reconnect attempt per feature entry/foreground return. */
 @Singleton
 class ConnectionSession @Inject constructor(
     private val flipper: Flipper,
     @param:ApplicationContext private val context: Context,
-) {
+) : FlipperConnectionController {
     private val preferences = context.getSharedPreferences("last_flipper", Context.MODE_PRIVATE)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var foreground = false
@@ -38,7 +39,7 @@ class ConnectionSession @Inject constructor(
         }
     }
 
-    fun onForeground() {
+    override fun onEnter() {
         if (foreground) return
         foreground = true
         if (manuallyDisconnected || flipper.isScanning.value ||
@@ -51,7 +52,9 @@ class ConnectionSession @Inject constructor(
         scope.launch { flipper.connect(BleDevice(name, address)) }
     }
 
-    fun onBackground() { foreground = false; manuallyDisconnected = false }
-    suspend fun connect(device: BleDevice) { manuallyDisconnected = false; flipper.connect(device) }
-    suspend fun disconnect() { manuallyDisconnected = true; flipper.disconnect() }
+    override fun onLeave(changingConfigurations: Boolean) {
+        if (!changingConfigurations) { foreground = false; manuallyDisconnected = false }
+    }
+    override suspend fun connect(device: BleDevice) { manuallyDisconnected = false; flipper.connect(device) }
+    override suspend fun disconnect() { manuallyDisconnected = true; flipper.disconnect() }
 }

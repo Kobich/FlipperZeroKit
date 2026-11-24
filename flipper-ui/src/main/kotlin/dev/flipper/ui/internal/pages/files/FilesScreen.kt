@@ -1,4 +1,4 @@
-package dev.flipper.zerokit.sample.presentation.pages.files
+package dev.flipper.ui.internal.pages.files
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -29,11 +29,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @Composable
-fun FilesRoute(viewModel: FilesViewModel = hiltViewModel()) {
+internal fun FilesRoute(viewModel: FilesViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var downloadPath by rememberSaveable { mutableStateOf<String?>(null) }

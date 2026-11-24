@@ -1,4 +1,4 @@
-package dev.flipper.zerokit.sample.presentation.pages.device
+package dev.flipper.ui.internal.pages.device
 
 import android.app.Activity
 import android.content.ClipData
@@ -36,27 +36,26 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import dev.flipper.zerokit.sample.R
+import dev.flipper.ui.R
 import dev.flipper.api.model.BleConnectionState
 import dev.flipper.api.model.BleDevice
 import dev.flipper.api.model.FlipperRpcException
 import androidx.compose.material3.TextButton
 import dev.flipper.api.model.BleFailure
-import dev.flipper.zerokit.sample.presentation.components.FlipperOutlinedButton
-import dev.flipper.zerokit.sample.presentation.components.FlipperPrimaryButton
-import dev.flipper.zerokit.sample.presentation.components.InfoPanel
-import dev.flipper.zerokit.sample.presentation.components.InfoRow
-import dev.flipper.zerokit.sample.presentation.components.SectionTitle
+import dev.flipper.ui.internal.components.FlipperOutlinedButton
+import dev.flipper.ui.internal.components.FlipperPrimaryButton
+import dev.flipper.ui.internal.components.InfoPanel
+import dev.flipper.ui.internal.components.InfoRow
+import dev.flipper.ui.internal.components.SectionTitle
 import dev.flipper.api.FlipperPermissions
 
 private enum class EntryAction { KNOWN_DEVICES, SCAN }
 
 @Composable
-fun DeviceRoute(viewModel: DeviceViewModel = hiltViewModel()) {
+internal fun DeviceRoute(viewModel: DeviceViewModel) {
 
     val uiState by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -149,11 +148,11 @@ private fun DeviceScreen(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text(stringResource(R.string.connection_title), style = MaterialTheme.typography.headlineMedium)
+        Text(stringResource(R.string.flipper_connection_title), style = MaterialTheme.typography.headlineMedium)
         Text("Пробная версия · RPC: "+state.rpcStatus)
         TextButton(onClick = onCopyDiagnostics) { Text("Скопировать диагностику") }
         Text(
-            stringResource(R.string.connection_intro),
+            stringResource(R.string.flipper_connection_intro),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -161,30 +160,30 @@ private fun DeviceScreen(
         when (val connection = state.connection) {
             is BleConnectionState.Connected -> {
                 Text(
-                    stringResource(R.string.connected_status),
+                    stringResource(R.string.flipper_connected_status),
                     color = MaterialTheme.colorScheme.primary,
                     style = MaterialTheme.typography.titleSmall,
                 )
-                SectionTitle(stringResource(R.string.device_info_title))
+                SectionTitle(stringResource(R.string.flipper_device_info_title))
                 InfoPanel {
-                    InfoRow(stringResource(R.string.device_name_label), connection.device.name)
-                    InfoRow(stringResource(R.string.device_address_label), connection.device.address)
+                    InfoRow(stringResource(R.string.flipper_device_name_label), connection.device.name)
+                    InfoRow(stringResource(R.string.flipper_device_address_label), connection.device.address)
                     when (val info = state.info) {
-                        DeviceInfoState.None -> Text(stringResource(R.string.rpc_waiting))
+                        DeviceInfoState.None -> Text(stringResource(R.string.flipper_rpc_waiting))
                         DeviceInfoState.Loading -> {
                             CircularProgressIndicator()
-                            Text(stringResource(R.string.loading_info))
+                            Text(stringResource(R.string.flipper_loading_info))
                         }
                         is DeviceInfoState.Ready -> {
-                            val unknown = stringResource(R.string.value_unknown)
-                            InfoRow(stringResource(R.string.firmware_label), info.data.firmwareVersion ?: unknown)
-                            InfoRow(stringResource(R.string.firmware_branch_label), info.data.firmwareBranch ?: unknown)
-                            InfoRow(stringResource(R.string.hardware_label), info.data.hardwareVersion ?: unknown)
-                            InfoRow(stringResource(R.string.hardware_model_label), info.data.hardwareModel ?: unknown)
-                            InfoRow(stringResource(R.string.uid_label), info.data.hardwareUid ?: unknown)
+                            val unknown = stringResource(R.string.flipper_value_unknown)
+                            InfoRow(stringResource(R.string.flipper_firmware_label), info.data.firmwareVersion ?: unknown)
+                            InfoRow(stringResource(R.string.flipper_firmware_branch_label), info.data.firmwareBranch ?: unknown)
+                            InfoRow(stringResource(R.string.flipper_hardware_label), info.data.hardwareVersion ?: unknown)
+                            InfoRow(stringResource(R.string.flipper_hardware_model_label), info.data.hardwareModel ?: unknown)
+                            InfoRow(stringResource(R.string.flipper_uid_label), info.data.hardwareUid ?: unknown)
                             var showAll by remember(info.data) { mutableStateOf(false) }
                             TextButton(onClick = { showAll = !showAll }) {
-                                Text(stringResource(if (showAll) R.string.hide_device_fields else R.string.show_device_fields, info.data.fields.size))
+                                Text(stringResource(if (showAll) R.string.flipper_hide_device_fields else R.string.flipper_show_device_fields, info.data.fields.size))
                             }
                             if (showAll) info.data.fields.toSortedMap().forEach { (key, value) -> InfoRow(key, value) }
                         }
@@ -202,21 +201,21 @@ private fun DeviceScreen(
                     }
                 }
                 Text(state.diagnostics.pingMessage)
-                FlipperPrimaryButton(stringResource(R.string.command_ping), sendPing, enabled = state.isRpcReady)
-                FlipperPrimaryButton(stringResource(R.string.refresh_info), onRefresh,
+                FlipperPrimaryButton(stringResource(R.string.flipper_command_ping), sendPing, enabled = state.isRpcReady)
+                FlipperPrimaryButton(stringResource(R.string.flipper_refresh_info), onRefresh,
                     enabled = state.isRpcReady && state.info !is DeviceInfoState.Loading)
 
-                FlipperOutlinedButton(stringResource(R.string.disconnect_device), onDisconnect)
+                FlipperOutlinedButton(stringResource(R.string.flipper_disconnect_device), onDisconnect)
             }
             is BleConnectionState.Pairing -> {
                 CircularProgressIndicator()
-                Text(stringResource(R.string.device_pairing, connection.device.name))
-                FlipperOutlinedButton(stringResource(R.string.disconnect_device), onDisconnect)
+                Text(stringResource(R.string.flipper_device_pairing, connection.device.name))
+                FlipperOutlinedButton(stringResource(R.string.flipper_disconnect_device), onDisconnect)
             }
             is BleConnectionState.Connecting -> {
                 CircularProgressIndicator()
-                Text(stringResource(R.string.device_connecting, connection.device.name))
-                FlipperOutlinedButton(stringResource(R.string.disconnect_device), onDisconnect)
+                Text(stringResource(R.string.flipper_device_connecting, connection.device.name))
+                FlipperOutlinedButton(stringResource(R.string.flipper_disconnect_device), onDisconnect)
             }
             BleConnectionState.Disconnected, is BleConnectionState.Failed -> {
                 if (connection is BleConnectionState.Failed) {
@@ -226,10 +225,10 @@ private fun DeviceScreen(
                     )
                 }
                 if (permissionDenied) {
-                    Text(stringResource(R.string.permission_denied), color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(R.string.flipper_permission_denied), color = MaterialTheme.colorScheme.error)
                 }
                 if (enableDenied) {
-                    Text(stringResource(R.string.bluetooth_enable_denied), color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(R.string.flipper_bluetooth_enable_denied), color = MaterialTheme.colorScheme.error)
                 }
                 SectionTitle("Уже известные устройства")
                 Text("Можно выбрать сопряжённый Flipper без поиска. Метка подключения относится к Android; RPC приложения запускается отдельно.",
@@ -253,19 +252,19 @@ private fun DeviceScreen(
                 SectionTitle("Поиск новых устройств")
                 if (state.isScanning) {
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    Text(stringResource(R.string.scanning))
-                    FlipperOutlinedButton(stringResource(R.string.stop_scan), onStopScan)
+                    Text(stringResource(R.string.flipper_scanning))
+                    FlipperOutlinedButton(stringResource(R.string.flipper_stop_scan), onStopScan)
                 } else {
                     FlipperPrimaryButton(
                         label = stringResource(
-                            if (state.devices.isEmpty()) R.string.connect_device else R.string.scan_again,
+                            if (state.devices.isEmpty()) R.string.flipper_connect_device else R.string.flipper_scan_again,
                         ),
                         onClick = onScan,
                     )
                 }
                 if (state.isScanning || state.devices.isNotEmpty()) {
-                    SectionTitle(stringResource(R.string.available_devices))
-                    if (state.devices.isEmpty()) Text(stringResource(R.string.no_devices_yet))
+                    SectionTitle(stringResource(R.string.flipper_available_devices))
+                    if (state.devices.isEmpty()) Text(stringResource(R.string.flipper_no_devices_yet))
                     state.devices.forEach { device ->
                         Card(onClick = { onConnect(device) }, modifier = Modifier.fillMaxWidth()) {
                             Row(
@@ -292,30 +291,30 @@ private fun DeviceScreen(
 
 @Composable
 private fun failureText(failure: BleFailure): String = when (failure) {
-    BleFailure.BluetoothUnsupported -> stringResource(R.string.bluetooth_not_supported)
-    BleFailure.BluetoothDisabled -> stringResource(R.string.bluetooth_disabled)
-    BleFailure.PermissionMissing -> stringResource(R.string.bluetooth_permission_missing)
-    BleFailure.LocationServicesDisabled -> stringResource(R.string.permission_location_off)
-    BleFailure.PairingFailed -> stringResource(R.string.bluetooth_pairing_failed)
-    BleFailure.TimedOut -> stringResource(R.string.bluetooth_timeout)
-    is BleFailure.ScanFailed -> stringResource(R.string.bluetooth_scan_failed, failure.code)
-    is BleFailure.ConnectionFailed -> stringResource(R.string.bluetooth_connect_failed, failure.code)
-    is BleFailure.ServiceDiscoveryFailed -> stringResource(R.string.bluetooth_services_failed, failure.code)
-    is BleFailure.Unknown -> stringResource(R.string.bluetooth_unknown_error)
-    BleFailure.InvalidGattProfile -> stringResource(R.string.bluetooth_services_validation_failed)
+    BleFailure.BluetoothUnsupported -> stringResource(R.string.flipper_bluetooth_not_supported)
+    BleFailure.BluetoothDisabled -> stringResource(R.string.flipper_bluetooth_disabled)
+    BleFailure.PermissionMissing -> stringResource(R.string.flipper_bluetooth_permission_missing)
+    BleFailure.LocationServicesDisabled -> stringResource(R.string.flipper_permission_location_off)
+    BleFailure.PairingFailed -> stringResource(R.string.flipper_bluetooth_pairing_failed)
+    BleFailure.TimedOut -> stringResource(R.string.flipper_bluetooth_timeout)
+    is BleFailure.ScanFailed -> stringResource(R.string.flipper_bluetooth_scan_failed, failure.code)
+    is BleFailure.ConnectionFailed -> stringResource(R.string.flipper_bluetooth_connect_failed, failure.code)
+    is BleFailure.ServiceDiscoveryFailed -> stringResource(R.string.flipper_bluetooth_services_failed, failure.code)
+    is BleFailure.Unknown -> stringResource(R.string.flipper_bluetooth_unknown_error)
+    BleFailure.InvalidGattProfile -> stringResource(R.string.flipper_bluetooth_services_validation_failed)
     BleFailure.RPCError,
     BleFailure.RPCSessionInactive,
     BleFailure.EnableCCCDProblem,
-    is BleFailure.RPCReadError -> stringResource(R.string.rpc_error)
+    is BleFailure.RPCReadError -> stringResource(R.string.flipper_rpc_error)
 }
 
 @Composable
 private fun deviceInfoError(error: DeviceInfoState.Failed): String = when (error.reason) {
-    FlipperRpcException.Reason.NOT_READY -> stringResource(R.string.rpc_waiting)
-    FlipperRpcException.Reason.SESSION_CLOSED -> stringResource(R.string.device_info_session_closed)
-    FlipperRpcException.Reason.TIMEOUT -> stringResource(R.string.device_info_timeout)
-    FlipperRpcException.Reason.REMOTE_ERROR -> stringResource(R.string.device_info_remote_error, error.statusCode ?: -1)
-    FlipperRpcException.Reason.SEND_FAILED -> stringResource(R.string.device_info_send_failed)
-    FlipperRpcException.Reason.UNEXPECTED_RESPONSE -> stringResource(R.string.device_info_unexpected_response)
-    null -> stringResource(R.string.device_info_failed)
+    FlipperRpcException.Reason.NOT_READY -> stringResource(R.string.flipper_rpc_waiting)
+    FlipperRpcException.Reason.SESSION_CLOSED -> stringResource(R.string.flipper_device_info_session_closed)
+    FlipperRpcException.Reason.TIMEOUT -> stringResource(R.string.flipper_device_info_timeout)
+    FlipperRpcException.Reason.REMOTE_ERROR -> stringResource(R.string.flipper_device_info_remote_error, error.statusCode ?: -1)
+    FlipperRpcException.Reason.SEND_FAILED -> stringResource(R.string.flipper_device_info_send_failed)
+    FlipperRpcException.Reason.UNEXPECTED_RESPONSE -> stringResource(R.string.flipper_device_info_unexpected_response)
+    null -> stringResource(R.string.flipper_device_info_failed)
 }

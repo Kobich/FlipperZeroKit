@@ -1,4 +1,4 @@
-package dev.flipper.zerokit.sample.presentation.pages.device
+package dev.flipper.ui.internal.pages.device
 
 import dev.flipper.api.model.BleConnectionState
 import dev.flipper.api.model.BleDevice
@@ -9,7 +9,7 @@ import dev.flipper.api.model.PowerInfo
 import dev.flipper.api.model.FlipperRpcException
 import dev.flipper.api.model.RpcStatus
 
-sealed interface DeviceIntent {
+internal sealed interface DeviceIntent {
     data object RefreshKnownDevices : DeviceIntent
     data object StartScan : DeviceIntent
     data object StopScan : DeviceIntent
@@ -19,14 +19,14 @@ sealed interface DeviceIntent {
     data object Ping : DeviceIntent
 }
 
-sealed interface DeviceInfoState {
+internal sealed interface DeviceInfoState {
     data object None : DeviceInfoState
     data object Loading : DeviceInfoState
     data class Ready(val data: DeviceInfo) : DeviceInfoState
     data class Failed(val reason: FlipperRpcException.Reason? = null, val statusCode: Int? = null, val detail: String? = null) : DeviceInfoState
 }
 
-data class DeviceUiState(
+internal data class DeviceUiState(
     val connection: BleConnectionState = BleConnectionState.Disconnected,
     val devices: List<BleDevice> = emptyList(),
     val isScanning: Boolean = false,
@@ -38,7 +38,7 @@ data class DeviceUiState(
     val isRpcReady: Boolean get() = connection is BleConnectionState.Connected && rpcStatus == RpcStatus.ACTIVE
 }
 
-data class DeviceDiagnostics(val power: PowerInfo? = null, val powerMessage: String = "Ожидание RPC", val pingMessage: String = "Ping ещё не запускался")
+internal data class DeviceDiagnostics(val power: PowerInfo? = null, val powerMessage: String = "Ожидание RPC", val pingMessage: String = "Ping ещё не запускался")
 
-data class KnownDevicesUiState(val devices: List<KnownBleDevice> = emptyList(),
+internal data class KnownDevicesUiState(val devices: List<KnownBleDevice> = emptyList(),
     val isLoading: Boolean = false, val hasLoaded: Boolean = false, val failure: BleFailure? = null)

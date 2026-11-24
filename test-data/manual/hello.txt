@@ -1,0 +1,2 @@
+Flipper transfer test
+Тест UTF-8: привет, Flipper!
