@@ -67,3 +67,7 @@ Hilt 2.59+ требует AGP 9, поэтому замена только ном
 ## После добавления прототипа 24.11.2026
 
 sample Lint снова 0/0, flipper Lint 0 ошибок/3 GradleDependency; Kotlin source warnings отсутствуют. В одном incremental kaptDebugKotlin отмечено предупреждение процессора: The following options were not recognized by any processor (dagger.fastInit, Hilt internal options, kapt.kotlin.generated). Сборка завершилась успешно; причина не установлена, предупреждение не подавлялось. Его не смешиваем с прежними исправленными IDE-пометками Bluetooth.
+
+## Прототип 1.4 — фон и очистка
+
+Финальный прогон: 39 unit-тестов, AAR/APK, Lint flipper 0 ошибок/3 прежних GradleDependency, sample 0/0; новых compiler source warnings нет. Замечания ManifestOrder/UseKtx при разработке устранены. В PendingCleanupStore и LocalDownloadCleanup оставлены только локальные SuppressLint("UseKtx") для checked commit(): операция записи файла начинается после успешного синхронного сохранения журнала, а KTX edit возвращает Unit и скрывает результат commit. MissingPermission/новые глобальные suppressions не добавлялись. Предупреждение AGP/SDK 37 остаётся.

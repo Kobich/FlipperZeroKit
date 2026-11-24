@@ -37,6 +37,13 @@ import dev.flipper.internal.transport.BleReceiver
 import dev.flipper.internal.transport.BleSender
 import dev.flipper.internal.util.toInt
 import java.nio.ByteOrder
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import dev.flipper.api.model.PendingFileCleanup
+import dev.flipper.internal.rpc.PendingCleanupStore
 import java.io.InputStream
 import java.io.OutputStream
 import java.io.IOException
@@ -87,6 +94,12 @@ internal class DefaultFlipper(
     private val mainHandler = Handler(Looper.getMainLooper())
     private val gattManager = GattManager()
     private var closed = false
+    private var connectionChoice = 0L
+    private val _recovering = MutableStateFlow(false)
+    override val isRecovering = _recovering.asStateFlow()
+    private val cleanupStore = PendingCleanupStore(context)
+    private val _cleanup = MutableStateFlow(cleanupStore.load())
+    override val pendingFileCleanup = _cleanup.asStateFlow()
 
     // ---------- BLE components ---------- //
 
@@ -136,7 +149,7 @@ internal class DefaultFlipper(
 
     private val rpcFramer = RpcMessageFramer()
     private val commandIds = AtomicInteger(1)
-    private val rpcClient = RpcClient(::nextCommandId)
+    private val rpcClient = RpcClient(nextCommandId = ::nextCommandId)
     private val storageMutex = Mutex()
     private val _messages = MutableSharedFlow<FlipperProto.Main>(
         extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST,
@@ -153,6 +166,7 @@ internal class DefaultFlipper(
 
     override suspend fun startScan() {
         withContext(Dispatchers.Main) {
+            connectionChoice++
             check(!closed) { "Flipper is closed" }
             bleScanner.stop()
             blePairingManager.clearBondWaiting()
@@ -179,6 +193,7 @@ internal class DefaultFlipper(
 
     override suspend fun connect(device: BleDevice) {
         withContext(Dispatchers.Main) {
+            connectionChoice++
             check(!closed) { "Flipper is closed" }
             bleScanner.stop()
             blePairingManager.clearBondWaiting()
@@ -194,6 +209,7 @@ internal class DefaultFlipper(
 
     override suspend fun disconnect() {
         withContext(Dispatchers.Main) {
+            connectionChoice++
             check(!closed) { "Flipper is closed" }
             bleScanner.stop()
             blePairingManager.clearBondWaiting()
@@ -211,6 +227,11 @@ internal class DefaultFlipper(
         Log.d(TAG, "RPC status: $value")
         _rpcStatus.update { value }
 
+        if (value == RpcStatus.ACTIVE) {
+            connectTimeout?.cancel()
+            connectTimeout = null
+            scope.launch { try { cleanupPendingFiles() } catch (error: Exception) { Log.w(TAG, "Deferred cleanup pending", error) } }
+        }
         if (value != RpcStatus.ACTIVE) {
             rpcClient.onSessionClosed()
             currentGatt?.let(flipperSender::onRpcInactive)
@@ -223,6 +244,7 @@ internal class DefaultFlipper(
         withContext(Dispatchers.Main) {
             if (closed) return@withContext
             closed = true
+            connectionChoice++
             bleScanner.stop()
             blePairingManager.clearBondWaiting()
             closeCurrentGatt()
@@ -429,7 +451,10 @@ internal class DefaultFlipper(
     private fun onEnableAllCCCD(gatt: BluetoothGatt, device: BleDevice) {
         Log.d(TAG, "All CCCD subscriptions enabled")
         connectTimeout?.cancel()
-        connectTimeout = null
+        connectTimeout = scope.launch {
+            delay(15_000)
+            if (isCurrentGatt(gatt) && _rpcStatus.value != RpcStatus.ACTIVE) failGatt(gatt, BleFailure.TimedOut)
+        }
         saveConnectionState(BleConnectionState.Connected(device))
 
         // extra read RPC_STATUS characteristic, see result in onCharacteristicRead()
@@ -519,14 +544,70 @@ internal class DefaultFlipper(
         }
     }
 
+    private suspend fun rememberCleanup(item: PendingFileCleanup) {
+        val updated = (_cleanup.value + item).distinct()
+        cleanupStore.save(updated)
+        _cleanup.value = updated
+    }
+
+    private suspend fun forgetCleanup(item: PendingFileCleanup) {
+        val updated = _cleanup.value - item
+        cleanupStore.save(updated)
+        _cleanup.value = updated
+    }
+
+    private suspend fun cleanupForGatt(gatt: BluetoothGatt, address: String) {
+        for (item in _cleanup.value.filter { it.deviceAddress.equals(address, ignoreCase = true) }) {
+            rpcClient.deleteFile(item.path) { sendRpcMessage(it, gatt) }
+            forgetCleanup(item)
+        }
+    }
+
+    override suspend fun cleanupPendingFiles() = withContext(Dispatchers.Main.immediate) {
+        storageMutex.withLock {
+            val device = (connection.value as? BleConnectionState.Connected)?.device ?: return@withLock
+            if (rpcStatus.value == RpcStatus.ACTIVE) cleanupForGatt(requireRpcGatt(), device.address)
+        }
+    }
+
+    /** A user choosing another device/disconnecting always wins over operation recovery. */
+    private suspend fun recoverAfterTransfer(gatt: BluetoothGatt, device: BleDevice, choice: Long, reset: Boolean) {
+        withContext(NonCancellable) {
+            _recovering.value = true
+            try {
+                withTimeout(55_000) {
+                    if (closed || connectionChoice != choice) return@withTimeout
+                    if (!reset && currentGatt === gatt && rpcStatus.value == RpcStatus.ACTIVE) {
+                        try { cleanupForGatt(gatt, device.address); return@withTimeout }
+                        catch (error: Exception) { Log.w(TAG, "Soft cleanup failed; resetting session", error) }
+                    }
+                    if (connectionChoice != choice) return@withTimeout
+                    abortTransfer(gatt)
+                    connect(device)
+                    val reconnectChoice = connectionChoice
+                    combine(connection, rpcStatus) { state, rpc -> state to rpc }.first { (state, rpc) ->
+                        connectionChoice != reconnectChoice || state is BleConnectionState.Failed ||
+                            (state is BleConnectionState.Connected && rpc == RpcStatus.ACTIVE)
+                    }
+                    val ready = connection.value as? BleConnectionState.Connected
+                    if (connectionChoice == reconnectChoice && ready?.device?.address == device.address && rpcStatus.value == RpcStatus.ACTIVE)
+                        cleanupForGatt(requireRpcGatt(), device.address)
+                }
+            } catch (error: Exception) { Log.w(TAG, "Recovery/partial-file cleanup deferred", error) }
+            finally { _recovering.value = false }
+        }
+    }
+
     private fun MessageDigest.hex(): String = digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
     override suspend fun downloadFile(path: String, destination: OutputStream, timeoutMillis: Long,
         onProgress: (TransferProgress) -> Unit): TransferResult = withContext(Dispatchers.Main.immediate) {
         checkPath(path)
-        require(timeoutMillis > 0)
+        require(timeoutMillis >= 0)
         storageMutex.withLock {
             val gatt = requireRpcGatt()
+            val device = (connection.value as BleConnectionState.Connected).device
+            val choice = connectionChoice
             val send: suspend (FlipperProto.Main) -> BleFailure? = { sendRpcMessage(it, gatt) }
             val file = rpcClient.stat(path, 30_000L, send)
             require(!file.isDirectory) { "Select a file, not a directory" }
@@ -543,12 +624,10 @@ internal class DefaultFlipper(
                 withContext(Dispatchers.IO) { destination.flush() }
                 if (bytes != file.sizeBytes) throw IOException("Size mismatch: expected "+file.sizeBytes+", got "+bytes)
                 val localMd5 = digest.hex()
-                val remoteMd5 = rpcClient.md5(path, 60_000L, send)
-                if (localMd5 != remoteMd5) throw IOException("MD5 mismatch after download")
-                TransferResult(bytes, localMd5)
+                if (localMd5 != rpcClient.md5(path, 0L, send)) throw IOException("MD5 mismatch after download")
+                TransferResult(bytes, localMd5, path)
             } catch (error: Exception) {
-                // Storage.Read cannot be paused/cancelled in-place; reset the RPC session.
-                abortTransfer(gatt)
+                recoverAfterTransfer(gatt, device, choice, reset = true)
                 throw error
             }
         }
@@ -557,36 +636,18 @@ internal class DefaultFlipper(
     override suspend fun uploadFile(path: String, source: InputStream, sizeBytes: Long?, timeoutMillis: Long,
         onProgress: (TransferProgress) -> Unit): TransferResult = withContext(Dispatchers.Main.immediate) {
         checkPath(path)
-        require(path != "/" && timeoutMillis > 0 && (sizeBytes == null || sizeBytes >= 0))
+        require(path != "/" && timeoutMillis >= 0 && (sizeBytes == null || sizeBytes >= 0))
         storageMutex.withLock {
             val gatt = requireRpcGatt()
+            val device = (connection.value as BleConnectionState.Connected).device
+            val choice = connectionChoice
             val send: suspend (FlipperProto.Main) -> BleFailure? = { sendRpcMessage(it, gatt) }
-            try {
-                rpcClient.stat(path, 30_000L, send)
-                throw IOException("Destination already exists; choose another name")
-            } catch (error: FlipperRpcException) {
-                if (error.reason != FlipperRpcException.Reason.REMOTE_ERROR ||
-                    error.statusCode != FlipperProto.CommandStatus.ERROR_STORAGE_NOT_EXIST_VALUE) throw error
-            }
-            val digest = MessageDigest.getInstance("MD5")
-            var bytes = 0L
-            try {
-                onProgress(TransferProgress(0, sizeBytes))
-                rpcClient.writeFile(path, source, timeoutMillis, send) { chunk ->
-                    digest.update(chunk)
-                    bytes += chunk.size
-                    onProgress(TransferProgress(bytes, sizeBytes))
-                }
-                if (sizeBytes != null && bytes != sizeBytes) throw IOException("Source size changed during upload")
-                val localMd5 = digest.hex()
-                val remoteMd5 = rpcClient.md5(path, 60_000L, send)
-                if (localMd5 != remoteMd5) throw IOException("MD5 mismatch after upload")
-                TransferResult(bytes, localMd5)
-            } catch (error: Exception) {
-                // Closing the session releases an unfinished firmware Storage.Write.
-                abortTransfer(gatt)
-                throw error
-            }
+            dev.flipper.internal.rpc.RemoteUpload(rpcClient, send,
+                blockSend = { request -> withContext(NonCancellable) { withTimeout(45_000) { send(request) } } },
+                remember = ::rememberCleanup, forget = ::forgetCleanup,
+                recover = { recoverAfterTransfer(gatt, device, choice,
+                    reset = currentGatt !== gatt || rpcStatus.value != RpcStatus.ACTIVE) },
+            ).execute(device.address, path, source, sizeBytes, timeoutMillis, onProgress)
         }
     }
 

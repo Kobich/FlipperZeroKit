@@ -6,6 +6,8 @@ import dev.flipper.api.model.BleDevice
  * Calls are made on Main. Entry/leave track the feature destination as well as app visibility.
  */
 interface FlipperConnectionController {
+    val status: kotlinx.coroutines.flow.StateFlow<String>? get() = null
+    fun onDiscoveryStarted() {}
     suspend fun connect(device: BleDevice)
     suspend fun disconnect()
     fun onEnter() {}

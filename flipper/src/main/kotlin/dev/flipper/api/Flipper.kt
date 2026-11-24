@@ -1,6 +1,7 @@
 package dev.flipper.api
 
 import android.content.Context
+import dev.flipper.api.model.PendingFileCleanup
 import dev.flipper.api.model.PowerInfo
 import dev.flipper.api.model.StorageEntry
 import dev.flipper.api.model.TransferProgress
@@ -25,6 +26,9 @@ interface Flipper {
     val connection: StateFlow<BleConnectionState>
     val discoveredDevices: StateFlow<List<BleDevice>>
     val isScanning: StateFlow<Boolean>
+    val isRecovering: StateFlow<Boolean>
+    val pendingFileCleanup: StateFlow<List<PendingFileCleanup>>
+    suspend fun cleanupPendingFiles()
 
     /** No replay; a slow observer may lose old messages. Typed requests use a separate internal router. */
     val messages: SharedFlow<FlipperProto.Main>
@@ -44,14 +48,14 @@ interface Flipper {
 
     /** Streams on IO; the caller owns/ closes the stream. Success includes size and MD5 verification.
      * Cancellation/failure during transfer disconnects this session; a partial destination may remain.
-     * timeoutMillis bounds each transfer exchange; metadata/checksum requests have separate timeouts.
+     * timeoutMillis=0 has no total duration limit; stalled streaming exchanges still fail after 60s.
      */
     suspend fun downloadFile(path: String, destination: OutputStream,
-        timeoutMillis: Long = 600_000L, onProgress: (TransferProgress) -> Unit = {}): TransferResult
+        timeoutMillis: Long = 0L, onProgress: (TransferProgress) -> Unit = {}): TransferResult
 
-    /** Experimental. Refuses an existing destination (preflight Stat; not an atomic create).
+    /** Experimental. Chooses a free name: file.ext, file (2).ext, etc. Writes through an owned temporary file.
      * ASCII absolute paths only. The caller owns/closes source. One storage operation at a time.
-     * A partial file may remain after failure; it is never reported as completed.
+     * Failed/cancelled temporary uploads are deleted; offline cleanup is persisted for the next connection.
      */
     suspend fun uploadFile(path: String, source: InputStream, sizeBytes: Long? = null,
         timeoutMillis: Long = 600_000L, onProgress: (TransferProgress) -> Unit = {}): TransferResult

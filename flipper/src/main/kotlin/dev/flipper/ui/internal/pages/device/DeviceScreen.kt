@@ -55,7 +55,7 @@ import dev.flipper.api.FlipperPermissions
 private enum class EntryAction { KNOWN_DEVICES, SCAN }
 
 @Composable
-internal fun DeviceRoute(viewModel: DeviceViewModel) {
+internal fun DeviceRoute(viewModel: DeviceViewModel, embedded: Boolean = false) {
 
     val uiState by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -102,6 +102,7 @@ internal fun DeviceRoute(viewModel: DeviceViewModel) {
 
     DeviceScreen(
         state = uiState,
+        embedded = embedded,
         permissionDenied = permissionDenied,
         enableDenied = enableDenied,
         onScan = { requestAction(EntryAction.SCAN) },
@@ -133,6 +134,7 @@ internal fun DeviceRoute(viewModel: DeviceViewModel) {
 @Composable
 private fun DeviceScreen(
     state: DeviceUiState,
+    embedded: Boolean,
     permissionDenied: Boolean,
     enableDenied: Boolean,
     onScan: () -> Unit,
@@ -145,7 +147,8 @@ private fun DeviceScreen(
     onCopyDiagnostics: () -> Unit,
 ) {
     Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+        modifier = if (embedded) Modifier.fillMaxWidth().padding(20.dp)
+            else Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text(stringResource(R.string.flipper_connection_title), style = MaterialTheme.typography.headlineMedium)

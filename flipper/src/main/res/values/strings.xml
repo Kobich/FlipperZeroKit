@@ -1,6 +1,4 @@
 <resources>
-    <string name="flipper_tab_device">Устройство</string>
-    <string name="flipper_tab_files">Файлы</string>
     <string name="flipper_connection_title">Flipper Zero</string>
     <string name="flipper_connection_intro">Выберите сохранённый Flipper или найдите новое устройство.</string>
     <string name="flipper_connect_device">Подключить устройство</string>

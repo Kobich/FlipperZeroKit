@@ -61,7 +61,7 @@ internal class DeviceViewModel constructor(
         viewModelScope.launch {
             when (intent) {
                 DeviceIntent.RefreshKnownDevices -> refreshKnownDevices()
-                DeviceIntent.StartScan -> flipper.startScan()
+                DeviceIntent.StartScan -> { connectionController.onDiscoveryStarted(); flipper.startScan() }
                 DeviceIntent.StopScan -> flipper.stopScan()
                 is DeviceIntent.SelectDevice -> connectionController.connect(intent.device)
                 DeviceIntent.Disconnect -> connectionController.disconnect()

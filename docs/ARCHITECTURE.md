@@ -12,12 +12,12 @@
 Вход — dev.flipper.api.Flipper.create(context). Он сохраняет applicationContext и возвращает контракт Flipper.
 В api/model находятся BleDevice, BleConnectionState, BleFailure, RpcStatus, DeviceInfo и FlipperRpcException.
 FlipperPermissions предоставляет runtime-разрешения, которые запрашивает хост.
-StateFlow описывает connection/rpcStatus/discoveredDevices/isScanning, SharedFlow messages публикует входящие PB.Main.
+StateFlow описывает connection/rpcStatus/discoveredDevices/isScanning/isRecovering/pendingFileCleanup, SharedFlow messages публикует входящие PB.Main.
 Доступны getDeviceInfo(timeoutMillis), nextCommandId(), sendMessage(), поиск, connect/disconnect и окончательный close().
 
 Потребитель зависит от api и api/model. Ссылка на внутреннюю реализацию есть только внутри фабрики Flipper.create; тип DefaultFlipper наружу не возвращается.
 Прежние BleConnectionRepository и отдельная фабрика FlipperZeroClient удалены из нашего API.
-Сгенерированные protobuf-типы пока экспортируются вместе с protobuf-javalite: это существующий низкоуровневый RPC-контракт, есть типизированные операции DeviceInfo, PowerInfo, Ping и Storage (List/Stat/Read/Write/Md5sum).
+Сгенерированные protobuf-типы пока экспортируются вместе с protobuf-javalite: это существующий низкоуровневый RPC-контракт, есть типизированные операции DeviceInfo, PowerInfo, Ping и Storage (List/Stat/Read/Write/Md5sum/Delete/Rename).
 
 ## Реализация
 
@@ -45,10 +45,22 @@ Connected означает завершённые GATT-подписки; RPC_STA
 getDeviceInfo проверяет readiness, отправляет запрос в исходную GATT-сессию и ожидает полную серию с timeout. Disconnect/RPC NOT_ACTIVE завершает ожидающие запросы ошибкой; caller cancellation сохраняется как отмена.
 
 BLE/framing и схемы перенесены из protobuf-framing проекта коллеги. Состояние и ограничения DeviceInfo описаны в BASELINE.md.
-Реализован пробный сквозной сценарий DeviceInfo/PowerInfo/Ping/Storage. Storage сериализован; URI/потоками телефона управляет блок ui внутри :flipper через application ContentResolver, клиент связан с GATT-сессией. ConnectionViewModel внутри ui/internal/connection сохраняет последнее успешно подключённое устройство и делает одну попытку при входе/возврате во внешнее destination фичи; пользовательский controller может заменить политику. Физический прогон и ограничения — в PROTOTYPE.md; сведения — в DEVICE_INFO.md.
+Реализован пробный сквозной сценарий DeviceInfo/PowerInfo/Ping/Storage. Storage сериализован; URI/потоками телефона управляет блок ui внутри :flipper через application ContentResolver, клиент связан с GATT-сессией. ConnectionViewModel внутри ui/internal/connection сохраняет последнее успешно подключённое устройство и выполняет ограниченную серию до 3 попыток при входе/обрыве видимой фичи; пользовательский controller может заменить политику. Физический прогон и ограничения — в PROTOTYPE.md; сведения — в DEVICE_INFO.md.
 
 ## Встраиваемая UI-фича
 
-Одна внешняя точка FlipperScreen, две внутренние вкладки Device/Files. ViewModelStoreOwner — внешний NavBackStackEntry, поэтому внутреннее переключение не уничтожает передачу. FlipperConnectionController — необязательное переопределение connect/disconnect и lifecycle entry/leave с учётом конфигурации. Без него UI использует встроенную ConnectionViewModel с сохранением последнего устройства и одной попыткой reconnect. Пример и контракт — flipper/README.md.
+Одна внешняя точка FlipperScreen — общий LazyColumn с блоками устройства/передачи и строками файлов. ViewModelStoreOwner — внешний NavBackStackEntry; job передачи принадлежит TransferManager/TransferService и переживает уход с destination в живом процессе. FlipperConnectionController — необязательное переопределение connect/disconnect и lifecycle entry/leave с учётом конфигурации. Без него UI использует встроенную ConnectionViewModel с сохранением последнего устройства и серией reconnect 0/2/6 с, cooldown 60 с после провала. Пример и контракт — flipper/README.md.
 
 Тема, глобальная навигация и lifetime Flipper принадлежат хосту. В едином flipper используется Compose, но BLE/RPC-пакеты не зависят от UI. Hilt модулю не нужен. Ресурсы UI имеют префикс flipper_ для слияния с хостом. ViewModel не хранит Activity/Context.
+
+## Передача, отмена и очистка
+
+TransferManager использует application ContentResolver и отдельный SupervisorJob; UI ViewModel наблюдает StateFlow. connectedDevice foreground service стартует только из видимого пользовательского действия, показывает уведомление/отмену и удерживает CPU lease только во время операции. Клиент Flipper остаётся у хоста и должен жить до окончания операции; close/disconnect имеют приоритет. После force stop/смерти процесса данные автоматически не передаются заново.
+
+Общий лимит Read/Write снят (timeoutMillis=0); потоковый RPC проверяет отсутствие активности 60 с, GATT/metadata сохраняют технические таймауты. MD5 и Rename могут длиться дольше: отдельного лимита нет, отмена и потеря сессии завершают ожидание. RPC-ready ограничен 15 с после CCCD.
+
+RemoteUpload подбирает свободное имя, записывает UUID .part, проверяет MD5, повторно подбирает окончательное имя и выполняет Rename с последующей проверкой конечной копии. Firmware может реализовывать Rename как copy/delete, поэтому публикация требует дополнительного места и не атомарна относительно других клиентов. Storage-вызовы нашего клиента сериализованы.
+
+Durable журнал PendingCleanupStore записывает адрес устройства и только пути текущего upload до их создания; очистка повторяется на RPC-ready. Отмена upload защищает целый protobuf-кадр, затем Delete сбрасывает continuous write. Для Read/неисправной сессии выполняется ограниченное reconnect с проверкой актуального выбора пользователя. Локальный LocalDownloadCleanup хранит только URI созданных нами SAF-документов и добавленные нами persisted grants; удаление/освобождение чужих разрешений не выполняется. При недоступном устройстве/провайдере очистка остаётся ожидающей и видна в UI.
+
+Политики и границы приёмки — TASK.md §7; тесты — PROTOTYPE.md A/B/U/P/F.
