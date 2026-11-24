@@ -66,7 +66,7 @@ fun MainScreen(
         ) { insets ->
             NavHost(navController = navController, startDestination = FLIPPER_ROUTE, modifier = Modifier.padding(insets)) {
                 composable(FLIPPER_ROUTE) {
-                    FlipperScreen(flipper = hostViewModel.flipper, connectionController = hostViewModel.connectionController)
+                    FlipperScreen(flipper = hostViewModel.flipper)
                 }
             }
         }

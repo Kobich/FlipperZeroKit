@@ -19,8 +19,8 @@ android {
         applicationId = "dev.flipper.zerokit.sample"
         minSdk = 23
         targetSdk = 37
-        versionCode = 3
-        versionName = "1.2-prototype"
+        versionCode = 4
+        versionName = "1.3-prototype"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -48,7 +48,7 @@ kotlin {
 }
 
 dependencies {
-    implementation(project(":flipper-ui"))
+    implementation(project(":flipper"))
     implementation(libs.androidx.core)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)

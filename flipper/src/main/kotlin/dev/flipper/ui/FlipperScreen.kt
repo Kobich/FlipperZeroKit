@@ -1,6 +1,9 @@
 package dev.flipper.ui
 
+import dev.flipper.R
+
 import android.app.Activity
+import android.app.Application
 import android.content.Context
 import android.content.ContextWrapper
 import androidx.activity.compose.BackHandler
@@ -29,8 +32,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import dev.flipper.ui.internal.connection.ConnectionViewModel
 import dev.flipper.api.Flipper
-import dev.flipper.api.model.BleDevice
 import dev.flipper.ui.internal.pages.device.DeviceRoute
 import dev.flipper.ui.internal.pages.device.DeviceViewModel
 import dev.flipper.ui.internal.pages.files.FilesRoute
@@ -41,7 +44,8 @@ private enum class Section { DEVICE, FILES }
 /** One destination in a host's navigation graph. Does not create an Activity, NavController,
  * application theme, top app bar or bottom navigation. Uses the destination's ViewModelStoreOwner.
  * Keep one stable Flipper/controller for the lifetime of that destination; the host closes Flipper.
- * Without a controller, direct connection works and automatic reconnect policy is left to the host.
+ * By default the feature saves the last device and reconnects once on entry/foreground return.
+ * A custom controller can replace that policy; it does not change ownership of the Flipper client.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,11 +56,11 @@ fun FlipperScreen(
 ) {
     val context = LocalContext.current
     val applicationContext = context.applicationContext
-    val controller = connectionController ?: remember(flipper) {
-        object : FlipperConnectionController {
-            override suspend fun connect(device: BleDevice) = flipper.connect(device)
-            override suspend fun disconnect() = flipper.disconnect()
+    val controller = if (connectionController != null) connectionController else {
+        val connectionFactory = remember(flipper, applicationContext) {
+            viewModelFactory { initializer { ConnectionViewModel(flipper, applicationContext as Application) } }
         }
+        viewModel<ConnectionViewModel>(key = "flipper.connection", factory = connectionFactory)
     }
     val deviceFactory = remember(flipper, controller) {
         viewModelFactory { initializer { DeviceViewModel(flipper, controller) } }

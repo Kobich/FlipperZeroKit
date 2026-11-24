@@ -7,9 +7,8 @@
 
 ## Модули
 
-- `:flipper` — Android Library: сканирование, сопряжение, GATT, RX/TX, protobuf-схемы и RPC-framing. Без Compose и Hilt.
-- `:flipper-ui` — Android Library с Compose-экраном FlipperScreen: один вход в фичу, внутренние вкладки «Устройство»/«Файлы», SAF и состояние операций. Без Hilt, Activity и глобальной навигации.
-- `:sample` — демонстрационный хост с одним пунктом Flipper на нижнем баре. Здесь Hilt, тема и политика сохранения/переподключения; он встраивает FlipperScreen как destination.
+- `:flipper` — единая Android Library фичи: BLE/GATT/RPC, файловый обмен и Compose UI в пакете ui. Публичные входы: dev.flipper.api.Flipper и dev.flipper.ui.FlipperScreen. Без Hilt, Activity и глобальной навигации.
+- `:sample` — демонстрационный хост с одним пунктом Flipper на нижнем баре. Здесь Hilt, тема и владелец клиента; он встраивает FlipperScreen как destination. Стандартное сохранение устройства/reconnect находится внутри фичи.
 
 Актуальная основа — ветка protobuf-framing (5d4be58), где найдены framing и ping. ble-transport уже влита в main.
 В библиотеке доступны getDeviceInfo, getPowerInfo, ping, listFiles, downloadFile, uploadFile и raw RPC. Внутренний RpcClient маршрутизирует ответы по command_id; файловые серии передаются потоком. Полировка и физическая приёмка ещё предстоят.
@@ -17,7 +16,7 @@
 
 **Как сразу проверить:** [40 тестов с шагами, крайними случаями и ограничениями](docs/PROTOTYPE.md). Контрольные файлы — test-data/manual, архив — artifacts/flipper-test-files.zip. Готовый APK: sample/build/outputs/apk/debug/sample-debug.apk.
 
-Core API: [flipper/README.md](flipper/README.md). Встраивание готовой UI-фичи: [flipper-ui/README.md](flipper-ui/README.md). Оба модуля — библиотеки; приложение-хост владеет клиентом и внешним нижним баром.
+API и встраивание UI: [flipper/README.md](flipper/README.md). Приложение-хост подключает одну библиотеку :flipper и владеет клиентом/внешним нижним баром.
 
 ## Подключение и lifecycle
 

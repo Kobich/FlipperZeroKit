@@ -1,5 +1,17 @@
 # Проверки проекта
 
+## 24 ноября 2026 — фича объединена в один модуль
+
+По последнему уточнению пользователя должен подключаться один Gradle-модуль :flipper. Отдельный :flipper-ui удалён из settings, зависимостей и файловой системы; Kotlin UI и ресурсы перенесены внутрь flipper/src/main. Публичные пакеты dev.flipper.api и dev.flipper.ui сохранены; resource namespace единый dev.flipper.R. Разделение api / internal / ui остаётся внутри одной библиотеки, без Hilt/Activity/глобальной навигации.
+
+Стандартная политика last-device/reconnect также перенесена из sample в ui/internal/connection/ConnectionViewModel (AndroidViewModel с Application, scope внешнего destination). Поэтому FlipperScreen(flipper) по умолчанию сохраняет последнее успешное устройство и делает одну попытку при входе/возврате; необязательный FlipperConnectionController позволяет заменить политику. Sample теперь только создаёт клиент, предоставляет тему и один внешний пункт Flipper. Ключ preferences last_flipper сохранён.
+
+Финальный общий прогон завершился BUILD SUCCESSFUL; 29 регрессионных тестов прошли, AAR единой фичи и APK 1.3-prototype (versionCode 4) собраны. Lint flipper: 0 ошибок/3 прежних GradleDependency; sample: 0/0. Глобальные проверки не отключались.
+
+Дополнительно проверено содержимое flipper-debug.aar: classes.jar содержит Flipper API, FlipperScreenKt и ConnectionViewModel; UI-ресурсы находятся в том же AAR. В settings только :flipper и :sample, каталога flipper-ui нет. git diff --check прошёл.
+
+BLE/RPC-протокол и 40 сценариев ручного прогона не менялись; APK/автоподключение после объединения ещё нужно проверить на устройстве. Физическое подтверждение скачивания относится к предыдущему пользовательскому прогону, отправка пока не подтверждена.
+
 ## 24 ноября 2026 — одна встраиваемая UI-фича и ручной тест-план
 
 По уточнению пользователя добавлено R09: Flipper — один пункт внешней нижней навигации, а не два пункта «Устройство» и «Файлы». Создана Android Compose Library :flipper-ui с публичной FlipperScreen и необязательным FlipperConnectionController. Она не содержит Activity, Hilt, внешнего NavController/нижнего бара/темы. Sample владеет внешней навигацией, клиентом и политикой reconnect. Core :flipper не менялся.

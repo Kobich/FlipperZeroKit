@@ -8,7 +8,7 @@
 BLE-компоненты общие для этих веток. Framing, схемы, RPC-приём/отправка и сценарий ping перенесены из protobuf-framing.
 
 В flipper находятся BLE, модели/контракт, утилиты, RpcMessageFramer и восемь proto-файлов.
-Текущий Compose UI вынесен в нашу :flipper-ui; в sample — Hilt, тема/DataStore, внешний NavHost/нижний бар и ConnectionSession. Демонстрационные данные и прикладные Flipper use cases удалены.
+Текущий Compose UI находится в ui/ единого :flipper; в sample — Hilt, тема/DataStore и внешний NavHost/нижний бар. Стандартная политика подключения находится внутри фичи в ConnectionViewModel. Демонстрационные данные и прикладные Flipper use cases удалены.
 Изменения относительно исходника перечислены в docs/ARCHITECTURE.md.
 Взяты исходные версии зависимостей и текущая локальная версия Gradle wrapper 8.13; ранее существовавшее изменение wrapper properties в исходнике не исправлялось.
 
@@ -22,3 +22,5 @@ local.properties содержит локальную привязку к SDK и 
 В нашем проекте добавлены DeviceInfo, FlipperRpcException и внутренний RpcClient: маршрутизация, ожидание полной серии, timeout и отмена по сессии. Исходная закомментированная попытка DeviceInfo заменена собственным API и проверками; firmware-ключи сверены с официальным furi_hal_info.c, см. docs/DEVICE_INFO.md.
 
 24.11.2026: по уточнению интеграции создана flipper-ui с одной точкой FlipperScreen, внутренними вкладками и UI ViewModel без Hilt. Существующие экраны/components перенесены из нашего sample с изменением namespace и resource prefix; BLE/RPC-протокол в этом переносе не менялся.
+
+Следующим уточнением пользователя 24.11.2026 фича объединена в один модуль :flipper: UI-код перенесён внутрь ui/, Gradle-модуль flipper-ui удалён. R namespace теперь dev.flipper.R, публичные dev.flipper.api и dev.flipper.ui сохранены. Политика подключения перенесена из sample в UI ViewModel без Hilt; BLE/RPC-протокол не менялся.

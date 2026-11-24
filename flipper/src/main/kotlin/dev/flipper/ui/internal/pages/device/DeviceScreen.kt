@@ -39,7 +39,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import dev.flipper.ui.R
+import dev.flipper.R
 import dev.flipper.api.model.BleConnectionState
 import dev.flipper.api.model.BleDevice
 import dev.flipper.api.model.FlipperRpcException

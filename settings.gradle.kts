@@ -23,4 +23,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "FlipperZeroKit"
-include(":flipper", ":flipper-ui", ":sample")
+include(":flipper", ":sample")
