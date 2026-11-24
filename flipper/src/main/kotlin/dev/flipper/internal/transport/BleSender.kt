@@ -48,6 +48,7 @@ internal class BleSender(
      *
      * @return `null` if all GATT writes completed successfully
      */
+    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     suspend fun sendRxMessage(message: ByteArray, expectedGatt: BluetoothGatt? = null): BleFailure? = withContext(Dispatchers.Main) {
         if (message.isEmpty()) return@withContext BleFailure.RPCError
         val buffer = message.copyOf()
@@ -171,6 +172,8 @@ internal class BleSender(
                     rxChar.value = bytes.copyOf()
                     gatt.writeCharacteristic(rxChar)
                 }
+            } catch (_: SecurityException) {
+                return BleFailure.PermissionMissing
             } catch (_: Exception) {
                 false
             }

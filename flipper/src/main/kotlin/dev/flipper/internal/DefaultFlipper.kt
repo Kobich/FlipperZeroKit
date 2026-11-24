@@ -21,6 +21,7 @@ import dev.flipper.api.model.BleDevice
 import dev.flipper.api.model.BleFailure
 import dev.flipper.api.model.RpcStatus
 import dev.flipper.internal.ble.BlePairingManager
+import dev.flipper.internal.ble.connectGattCompat
 import dev.flipper.internal.ble.BleScanner
 import dev.flipper.internal.ble.FlipperGattUuid
 import dev.flipper.internal.ble.GattManager
@@ -222,14 +223,7 @@ internal class DefaultFlipper(
 
         try {
             val callback = createGattCallback(device)
-            val gatt = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                remote.connectGatt(
-                    context, false, callback, BluetoothDevice.TRANSPORT_LE,
-                    BluetoothDevice.PHY_LE_1M_MASK, mainHandler,
-                )
-            } else {
-                remote.connectGatt(context, false, callback, BluetoothDevice.TRANSPORT_LE)
-            }
+            val gatt = remote.connectGattCompat(context, callback, mainHandler)
 
             if (gatt == null) {
                 fail(BleFailure.ConnectionFailed(-1))
@@ -318,14 +312,16 @@ internal class DefaultFlipper(
             }
         }
 
-        @Suppress("DEPRECATION")
+        // Required by the platform on API 23–32; newer Android uses the value-parameter overload.
+        @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
         override fun onCharacteristicRead(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) =
             dispatchRead(gatt, characteristic, characteristic.value?.copyOf() ?: byteArrayOf(), status)
 
         override fun onCharacteristicRead(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, value: ByteArray, status: Int) =
             dispatchRead(gatt, characteristic, value.copyOf(), status)
 
-        @Suppress("DEPRECATION")
+        // Required by the platform on API 23–32; newer Android uses the value-parameter overload.
+        @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) =
             dispatchChanged(gatt, characteristic, characteristic.value?.copyOf() ?: byteArrayOf())
 
@@ -388,8 +384,12 @@ internal class DefaultFlipper(
         when (characteristic.uuid) {
             FlipperGattUuid.Characteristic.RPC_STATUS.uuid -> RpcStatus.fromBytes(value)?.let {
                 saveRpcState(it)
-                if (!gattManager.readFlowControl(gatt)) {
-                    failGatt(gatt, BleFailure.RPCReadError("FlowControl"))
+                try {
+                    if (!gattManager.readFlowControl(gatt)) {
+                        failGatt(gatt, BleFailure.RPCReadError("FlowControl"))
+                    }
+                } catch (_: SecurityException) {
+                    failGatt(gatt, BleFailure.PermissionMissing)
                 }
             } ?: Log.e(TAG, "Cannot get RPC status from ${value.contentToString()}")
             FlipperGattUuid.Characteristic.FLOW_CONTROL.uuid -> handleFlowControlValue(value)
@@ -447,8 +447,13 @@ internal class DefaultFlipper(
         sendRpcMessage(message)
 
     private suspend fun sendRpcMessage(message: FlipperProto.Main, expectedGatt: BluetoothGatt? = null): BleFailure? {
+        if (!permissionChecker.hasConnectPermission()) return BleFailure.PermissionMissing
         val frame = withContext(Dispatchers.Default) { rpcFramer.encode(message) }
-        return flipperSender.sendRxMessage(frame, expectedGatt)
+        return try {
+            flipperSender.sendRxMessage(frame, expectedGatt)
+        } catch (_: SecurityException) {
+            BleFailure.PermissionMissing
+        }
     }
 
     override suspend fun getDeviceInfo(timeoutMillis: Long): DeviceInfo = withContext(Dispatchers.Main.immediate) {
@@ -511,7 +516,11 @@ internal class DefaultFlipper(
         } catch (e: IllegalStateException) {
             Log.w(TAG, "GATT already unavailable", e)
         } finally {
-            gatt?.close()
+            try {
+                gatt?.close()
+            } catch (e: SecurityException) {
+                Log.w(TAG, "GATT close permission missing", e)
+            }
         }
     }
 
@@ -538,6 +547,5 @@ internal class DefaultFlipper(
         // see https://github.com/flipperdevices/flipperzero-firmware/blob/dev/targets/f7/ble_glue/services/serial_service.h
         // BLE_SVC_SERIAL_DATA_LEN_MAX and BLE_SVC_SERIAL_CHAR_VALUE_LEN_MAX
         const val FLIPPER_RX_MAX_SIZE = 486
-        const val FLIPPER_TX_MAX_SIZE = 243
     }
 }

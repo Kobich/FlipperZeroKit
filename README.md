@@ -50,7 +50,7 @@ client.close()      // Окончательное освобождение; по
 ## Сборка
 
 Стек сохранён из исходной базы: AGP 8.13.0, Gradle 8.13, Kotlin 2.2.20, compileSdk/targetSdk 37, minSdk 23. Нужен JDK 17+; проверка выполняется на JDK 21.
-В Android Studio откройте корень проекта, выберите Gradle JDK и укажите установленный Android SDK.
+В Android Studio откройте корень проекта, выберите Gradle JDK и укажите установленный Android SDK. Для упаковки native-зависимостей sample закреплён NDK 28.2.13676358 (r28c); он должен быть установлен через SDK Manager.
 
 ```text
 .\gradlew.bat :flipper:testDebugUnitTest :sample:assembleDebug
@@ -65,4 +65,5 @@ client.close()      // Окончательное освобождение; по
 - [Очередность дальнейших работ и критерии готовности](docs/ROADMAP.md)
 - [DeviceInfo: API, ошибки и проверка на Android 16](docs/DEVICE_INFO.md)
 - [Результаты проверки](docs/VALIDATION.md)
+- [Исправленные и оставшиеся предупреждения](docs/WARNINGS.md)
 - [Происхождение кода](SOURCE_PROVENANCE.md)

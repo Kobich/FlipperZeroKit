@@ -1,60 +1,43 @@
-# Проверка — 23 ноября 2026
+# Проверки проекта
 
-## DeviceInfo — текущая проверка
+## 24 ноября 2026 — предупреждения и ошибки
 
-После добавления getDeviceInfo выполнено :flipper:testDebugUnitTest :sample:assembleDebug --offline --no-configuration-cache: BUILD SUCCESSFUL.
-17 unit-тестов, 0 ошибок/падений: 12 сценариев RpcClient, 2 проверки ключей/отсутствующих полей DeviceInfo и 3 существующих теста framing.
-Проверены мгновенный ответ, has_next, посторонние ID, параллельные запросы, ошибки статуса/типа/отправки, timeout (включая зависшую отправку), caller cancellation, закрытие сессии, поздние ответы и повторный запрос. Отдельно проверено, что быстрый RPC-ответ не отменяет ожидаемый GATT write callback.
-Собран sample APK с реальным запросом, состояниями RPC-ready/loading/error и просмотром исходных полей. Demo DeviceInfo и заряд удалены.
-Пользователь указал Android 16; firmware неизвестна. Физический запрос ещё не проверен. Чек-лист — DEVICE_INFO.md.
-
-## Предыдущая проверка структуры
-
-После переименования модуля в :flipper и перехода на API dev.flipper.api.Flipper повторно выполнены :flipper:testDebugUnitTest и :sample:assembleDebug: BUILD SUCCESSFUL.
-Проверены src/main/kotlin и src/test/kotlin, генерация proto и подключение sample через implementation(project(":flipper")). Три теста framing прошли без ошибок.
-
-Функциональная база — RPC-код origin/protobuf-framing.
-
-## Успешно
-
-- :flipper:generateDebugProto — сгенерированы Java lite-модели из восьми схем.
-- :flipper:compileDebugKotlin и :flipper:compileDebugJavaWithJavac — библиотека с framing и RPC скомпилирована.
-- :flipper:testDebugUnitTest — 3 теста, 0 ошибок/падений: разрезанный varint/тело, несколько кадров в одном фрагменте, превышение/переполнение длины, незаконченный кадр.
-- :sample:assembleDebug — собран debug APK с нашей библиотекой, Hilt и кнопкой ping.
-- Проверены границы: в библиотеке нет Hilt, javax.inject, Compose, sample и старого пакета dev.filpper.companion.
-- Рабочая копия коллеги проверена по SHA-256 и git status: наших изменений нет. Его ветка осталась main; существовавшее изменение wrapper properties сохранено.
-
-Команда для повторения основной проверки:
+Исправления применены в рабочем FlipperZeroKit; итоговая проверка запускалась непосредственно из C:/Users/RED.DOT/StudioProjects/FlipperZeroKit.
 
 ```text
-.\gradlew.bat :flipper:testDebugUnitTest :sample:assembleDebug
+.\gradlew.bat --offline --warning-mode all :flipper:assembleDebug :flipper:testDebugUnitTest :sample:assembleDebug :flipper:lintDebug :sample:lintDebug
 ```
 
-Сборка sample также проверяет подключение библиотеки как Gradle-модуля. Она не заменяет отдельную упаковку AAR.
+Результат: BUILD SUCCESSFUL; Configuration cache entry stored.
 
-## Не завершено: AAR и Lint
+| Проверка | Результат |
+| --- | --- |
+| Kotlin source compiler | 0 предупреждений, 0 ошибок |
+| :flipper:lintDebug | 0 ошибок, 3 предупреждения GradleDependency об общей версии Hilt |
+| :sample:lintDebug | 0 ошибок, 0 предупреждений |
+| Unit-тесты :flipper | 17 тестов, 0 ошибок/падений |
+| :flipper:assembleDebug | AAR собран |
+| :sample:assembleDebug | APK собран |
+| Native stripping | Выполнен установленным NDK r28c, предупреждение Unable to strip отсутствует |
+| git diff --check | Код 0, ошибок whitespace нет |
 
-На предыдущем этапе запускались упаковка AAR и Lint. После структурного рефакторинга эти задачи повторно не запускались.
-В offline-кэше не хватило com.android.tools.external.com-intellij:intellij-core:31.13.0 и kotlin-compiler:31.13.0.
-Сетевая загрузка двух крупных JAR из Google Maven шла медленно и была остановлена.
-Полное прохождение этих двух задач не заявляем. Для завершения повторить:
+Ранее недостающие intellij-core/kotlin-compiler 31.13.0 скачаны, блокер AAR/Lint устранён.
+Детали исправлений и оставшиеся версионные предупреждения: [WARNINGS.md](WARNINGS.md).
 
-```text
-.\gradlew.bat :flipper:assembleDebug :flipper:lintDebug
-```
+Окружение: JBR 21.0.11, Gradle 8.13, Kotlin 2.2.20, AGP 8.13.0, compileSdk/targetSdk 37, minSdk 23. Sample использует NDK 28.2.13676358 для упаковки native-зависимостей AndroidX.
+Остались предупреждения AGP о compileSdk 37 и предложение обновить Hilt; согласованная миграция сборочного стека ещё не выполнена.
 
-Protoc и зависимости Hilt, которых первоначально тоже не было в offline-кэше, впоследствии загрузились: они больше не блокируют проверенные задачи.
+## 23 ноября 2026 — DeviceInfo и структура модуля
 
-## Окружение и предупреждения
-
-JBR 21.0.11, Gradle 8.13, Kotlin 2.2.20, AGP 8.13.0, Android SDK 37.0.
-AGP предупреждает, что проверен до compileSdk 36.1; SDK 37 здесь за пределами проверенной комбинации.
-Есть предупреждения устаревшего kotlinOptions.jvmTarget, совместимых GATT API и старого импорта hiltViewModel в sample; они не помешали проверенным задачам.
-Версии инструментов в рамках знакомства не обновлялись.
+В :flipper реализован getDeviceInfo; sample использует реальный RPC-запрос вместо demo.
+17 unit-тестов: 12 сценариев RpcClient, 2 проверки ключей/отсутствующих полей DeviceInfo, 3 теста framing.
+Проверены быстрый ответ, has_next, чужие ID, параллельные запросы, ошибки статуса/типа/отправки, timeout, отмена, session close, поздние ответы и повторный запрос.
+Отдельно проверено, что быстрый ответ не отменяет ожидаемый GATT write callback.
+Ранее выполнены перенос в :flipper, разделение api/internal, генерация восьми proto-схем и сборка sample APK.
 
 ## Физическое устройство
 
-Нами не проверялись: поиск/сопряжение на телефоне, RPC-ready, ping, DeviceInfo/PowerInfo и файлы.
-Ping найден и перенесён из protobuf-framing; по проверке пользователя он работает. В sample сценарий пока проверяет отправку, а не ожидает подтверждённый PingResponse.
-Успешные тесты framing и сборка APK не означают, что BLE/RPC на устройстве уже перепроверены.
-Чек-лист следующего прогона — в ROADMAP.md.
+Известен Android 16; firmware Flipper пока неизвестна.
+Ping подтверждён пользователем в исходном сценарии; нами поиск/сопряжение, DeviceInfo, новая ветка GATT API 37 и файловые операции на устройстве ещё не проверялись.
+Успешные тесты, Lint и сборка не означают, что BLE-поведение перепроверено физически.
+Чек-лист — [DEVICE_INFO.md](DEVICE_INFO.md), общая приёмка — [TASK.md](TASK.md) и [ROADMAP.md](ROADMAP.md).

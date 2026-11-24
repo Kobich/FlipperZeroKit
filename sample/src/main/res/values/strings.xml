@@ -14,7 +14,6 @@
     <string name="scanning">Идёт поиск BLE-устройств…</string>
     <string name="available_devices">Найденные устройства</string>
     <string name="no_devices_yet">Устройства пока не найдены. Проверьте, что Bluetooth включён на Flipper Zero.</string>
-    <string name="select_ble_device">Подключиться к %1$s</string>
     <string name="device_connecting">Подключение к %1$s…</string>
     <string name="device_pairing">Ожидание сопряжения с %1$s…</string>
     <string name="connected_status">BLE/GATT подключён</string>
@@ -24,7 +23,6 @@
     <string name="device_address_label">BLE-адрес</string>
     <string name="firmware_label">Прошивка</string>
     <string name="hardware_label">Аппаратная версия</string>
-    <string name="percentage">%1$d%%</string>
 
     <string name="command_ping">Отправить ping</string>
 
@@ -56,7 +54,6 @@
     <string name="bluetooth_unknown_error">Ошибка Bluetooth.</string>
     <string name="rpc_error">Ошибка RPC.</string>
     <string name="permission_location_off">На Android 11 для BLE-поиска также должны быть включены службы геолокации.</string>
-    <string name="retry">Повторить</string>
     <string name="firmware_branch_label">Ветка прошивки</string>
     <string name="hardware_model_label">Модель</string>
     <string name="uid_label">UID устройства</string>

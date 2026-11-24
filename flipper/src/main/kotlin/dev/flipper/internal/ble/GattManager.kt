@@ -34,18 +34,18 @@ internal class GattManager {
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     fun processNextSubscription(gatt: BluetoothGatt): BleFailure? {
         val characteristic = notifySubscriptionQueue.removeFirstOrNull() ?: return BleFailure.Unknown("No characteristics in queue to make subscriptions")
-        Log.v("OPOPO", "BleSubscriptionManager -> processNextSubscription process char ${characteristic.uuid.getCharacteristicByUuid()}")
+        Log.v(TAG, "BleSubscriptionManager -> processNextSubscription process char ${characteristic.uuid.getCharacteristicByUuid()}")
 
         gatt.setCharacteristicNotification(characteristic, true)
         val descriptor = characteristic.getDescriptor(FlipperGattUuid.BtSigConst.CCCD) ?: run {
             // if we don't have the descriptor - return
             return BleFailure.Unknown("No description CCCD for characteristics ${characteristic.uuid.getCharacteristicByUuid()}")
         }
-        Log.v("OPOPO", "BleSubscriptionManager -> processNextSubscription process CCCD description was found")
+        Log.v(TAG, "BleSubscriptionManager -> processNextSubscription process CCCD description was found")
 
         // make a decision: Notify (0x01, 0x00) or Indicate (0x02, 0x00)
         val isIndicate = (characteristic.properties and BluetoothGattCharacteristic.PROPERTY_INDICATE) != 0
-        Log.v("OPOPO", "BleSubscriptionManager -> processNextSubscription set ${if (isIndicate) "INDICATION" else "NOTIFICATION"}")
+        Log.v(TAG, "BleSubscriptionManager -> processNextSubscription set ${if (isIndicate) "INDICATION" else "NOTIFICATION"}")
         val payload = if (isIndicate) {
             BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
         } else {
@@ -82,20 +82,9 @@ internal class GattManager {
 
     /** @return verdict about success of connection by checking necessary uuids */
     fun validateGattConnection(gatt: BluetoothGatt): Boolean {
-        Log.v(
-            "OPOPO", "BleConnectionRepo -> validateGattConnection services: ${
-                gatt.services.joinToString("\n") {
-                    "{ ${it.uuid} ${it.type} ${it.instanceId} chars = [${
-                        it.characteristics.joinToString(", ") { c ->
-                            "c{ uuid=${c.uuid} value=${c.value} permissions=${c.permissions} props=${c.properties} descriptors=${
-                                c.descriptors.joinToString(", ") { d ->
-                                    "d{ uuid=${d.uuid} value=${d.value} permissions=${d.permissions} }"
-                                }
-                            } }"
-                        }
-                    }] }"
-                }
-            }")
+        Log.v(TAG, "Discovered GATT services: " + gatt.services.joinToString { service ->
+            service.uuid.toString() + ": [" + service.characteristics.joinToString { it.uuid.toString() } + "]"
+        })
 
         return gatt.getService(FlipperGattUuid.SERVICE)
             ?.let { service ->
@@ -111,4 +100,7 @@ internal class GattManager {
         notifySubscriptionQueue.clear()
     }
 
+    private companion object {
+        const val TAG = "GattManager"
+    }
 }

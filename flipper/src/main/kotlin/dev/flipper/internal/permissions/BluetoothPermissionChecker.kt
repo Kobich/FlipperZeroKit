@@ -37,7 +37,7 @@ internal class BluetoothPermissionChecker(
             return false
         }
         try {
-            if (adapter?.isEnabled != true) {
+            if (!adapter.isEnabled) {
                 onFail(BleFailure.BluetoothDisabled)
                 return false
             }

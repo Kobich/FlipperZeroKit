@@ -13,7 +13,7 @@ import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 
 class ThemeRepositoryImpl @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
 ) : ThemeRepository {
     private val themeKey = stringPreferencesKey(SettingsStore.Key.THEME_MODE)
 
