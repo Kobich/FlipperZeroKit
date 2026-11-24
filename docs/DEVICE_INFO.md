@@ -8,7 +8,7 @@
 DeviceInfo.fields содержит все переданные устройством key/value, включая неизвестные ключи кастомной прошивки.
 Удобные nullable-свойства: firmwareVersion, firmwareBranch, hardwareVersion, hardwareModel, hardwareUid, name.
 Основные ключи официального RPC: firmware_version, firmware_branch, hardware_ver, hardware_model, hardware_uid и hardware_name. Также поддержаны dotted aliases; отсутствие поля не ломает результат.
-UID показывается как UID, не как серийный номер. Заряд не входит в эту операцию: demo-заряд удалён, PowerInfo остаётся следующим шагом.
+UID показывается как UID, не как серийный номер. Заряд не входит в эту операцию: demo-заряд удалён, PowerInfo реализован отдельным запросом/моделью и показан в sample; его ошибка не скрывает DeviceInfo. Общий пробный прогон — PROTOTYPE.md.
 В sample кнопка «Все поля DeviceInfo» раскрывает исходную карту для диагностики неизвестной прошивки.
 
 Поля сверены с [furi_hal_info.c](https://github.com/flipperdevices/flipperzero-firmware/blob/dev/targets/f7/furi_hal/furi_hal_info.c).

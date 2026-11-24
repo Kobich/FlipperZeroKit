@@ -3,6 +3,7 @@ package dev.flipper.zerokit.sample.presentation.pages.device
 import dev.flipper.api.model.BleConnectionState
 import dev.flipper.api.model.BleDevice
 import dev.flipper.api.model.DeviceInfo
+import dev.flipper.api.model.PowerInfo
 import dev.flipper.api.model.FlipperRpcException
 import dev.flipper.api.model.RpcStatus
 
@@ -19,7 +20,7 @@ sealed interface DeviceInfoState {
     data object None : DeviceInfoState
     data object Loading : DeviceInfoState
     data class Ready(val data: DeviceInfo) : DeviceInfoState
-    data class Failed(val reason: FlipperRpcException.Reason? = null, val statusCode: Int? = null) : DeviceInfoState
+    data class Failed(val reason: FlipperRpcException.Reason? = null, val statusCode: Int? = null, val detail: String? = null) : DeviceInfoState
 }
 
 data class DeviceUiState(
@@ -28,6 +29,9 @@ data class DeviceUiState(
     val isScanning: Boolean = false,
     val info: DeviceInfoState = DeviceInfoState.None,
     val rpcStatus: RpcStatus = RpcStatus.NOT_ACTIVE,
+    val diagnostics: DeviceDiagnostics = DeviceDiagnostics(),
 ) {
     val isRpcReady: Boolean get() = connection is BleConnectionState.Connected && rpcStatus == RpcStatus.ACTIVE
 }
+
+data class DeviceDiagnostics(val power: PowerInfo? = null, val powerMessage: String = "Ожидание RPC", val pingMessage: String = "Ping ещё не запускался")

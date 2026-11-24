@@ -63,3 +63,7 @@ Hilt 2.59+ требует AGP 9, поэтому замена только ном
 - [AndroidX Hilt 1.3.0: новое расположение hiltViewModel](https://developer.android.com/jetpack/androidx/releases/hilt#1.3.0).
 - [BluetoothDevice: connectGatt с settings/executor начиная с API 37](https://developer.android.com/reference/android/bluetooth/BluetoothDevice).
 - [BluetoothGattConnectionSettings.Builder: настройка автоматического MTU](https://developer.android.com/reference/android/bluetooth/BluetoothGattConnectionSettings.Builder).
+
+## После добавления прототипа 24.11.2026
+
+sample Lint снова 0/0, flipper Lint 0 ошибок/3 GradleDependency; Kotlin source warnings отсутствуют. В одном incremental kaptDebugKotlin отмечено предупреждение процессора: The following options were not recognized by any processor (dagger.fastInit, Hilt internal options, kapt.kotlin.generated). Сборка завершилась успешно; причина не установлена, предупреждение не подавлялось. Его не смешиваем с прежними исправленными IDE-пометками Bluetooth.

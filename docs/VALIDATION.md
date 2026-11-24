@@ -1,5 +1,26 @@
 # Проверки проекта
 
+## 24 ноября 2026 — сквозной пробный вариант
+
+В рабочий FlipperZeroKit добавлены PowerInfo, Ping с ожиданием ответа, Storage List/Stat/Read/Write/Md5sum, SAF-браузер/передача, прогресс/отмена/результат и reconnect последнего успешного устройства при входе Activity. Mock-каталог удалён. Код/протокол — это статус реализации; физическая приёмка пока открыта.
+
+| Проверка | Результат |
+| --- | --- |
+| :flipper:testDebugUnitTest | 29 тестов, 0 failures/errors: прежние 17 + 12 Storage/PowerInfo |
+| Новые сценарии RPC | PowerInfo/неизвестные поля, List в несколько сообщений/пустой/ошибка/unsigned size, неверное содержимое/имена, бинарный и пустой Read, отмена/поздние ответы, Write 512/512/1/0 с одним ID, пустой Write, преждевременный/отсутствующий ACK, remote/send error, ограниченный буфер, Stat/MD5 |
+| :sample:assembleDebug | APK собран |
+| :flipper:assembleDebug | AAR собран |
+| :sample:lintDebug | 0 ошибок, 0 предупреждений |
+| :flipper:lintDebug | 0 ошибок, 3 прежних GradleDependency по Hilt |
+| Kotlin compiler | 0 предупреждений/ошибок |
+| ADB | Список устройств пуст; установки/прогона на телефоне не было |
+
+Проверки выполнялись в самом C:/Users/RED.DOT/StudioProjects/FlipperZeroKit, с --offline. Временные ошибки имён generated protobuf API исправлены до успешного прогона. Новые Lint Recycle/UseKtx/UnusedResources устранены через use внутри IO, KTX edit и удаление старых ресурсов; проверки не подавлялись.
+
+Итоговый общий прогон всех пяти задач завершился BUILD SUCCESSFUL (configuration cache reused). В incremental kaptDebugKotlin один раз появился processor warning о нераспознанных Hilt/kapt options; это отдельное предупреждение процессора, не Kotlin source/Lint. Оно не подавлялось и не считается устранённым.
+
+Локальный APK: sample/build/outputs/apk/debug/sample-debug.apk. Прогон/ограничения — [PROTOTYPE.md](PROTOTYPE.md). Вручную ещё нужно подтвердить реальные значения питания, файловое содержимое/MD5, таймауты/обрывы/SAF и lifecycle reconnect на Android 16. Фон/resume не реализованы как гарантированный сценарий.
+
 ## 24 ноября 2026 — предупреждения и ошибки
 
 Исправления применены в рабочем FlipperZeroKit; итоговая проверка запускалась непосредственно из C:/Users/RED.DOT/StudioProjects/FlipperZeroKit.

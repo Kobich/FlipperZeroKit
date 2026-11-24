@@ -35,6 +35,16 @@ import dev.flipper.internal.transport.BleReceiver
 import dev.flipper.internal.transport.BleSender
 import dev.flipper.internal.util.toInt
 import java.nio.ByteOrder
+import java.io.InputStream
+import java.io.OutputStream
+import java.io.IOException
+import java.security.MessageDigest
+import dev.flipper.api.model.PowerInfo
+import dev.flipper.api.model.StorageEntry
+import dev.flipper.api.model.TransferProgress
+import dev.flipper.api.model.TransferResult
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration.Companion.milliseconds
@@ -64,7 +74,7 @@ import kotlinx.coroutines.withContext
  * on the main thread.
  *
  * Protobuf framing and raw RPC exchange are available.
- * TODO(rpc): add request routing, timeouts and typed operations.
+ * Typed operations are routed by command ID and bound to the current GATT session.
  */
 internal class DefaultFlipper(
     private val context: Context,
@@ -125,6 +135,7 @@ internal class DefaultFlipper(
     private val rpcFramer = RpcMessageFramer()
     private val commandIds = AtomicInteger(1)
     private val rpcClient = RpcClient(::nextCommandId)
+    private val storageMutex = Mutex()
     private val _messages = MutableSharedFlow<FlipperProto.Main>(
         extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
@@ -456,12 +467,120 @@ internal class DefaultFlipper(
         }
     }
 
-    override suspend fun getDeviceInfo(timeoutMillis: Long): DeviceInfo = withContext(Dispatchers.Main.immediate) {
+    private fun requireRpcGatt(): BluetoothGatt {
         val gatt = currentGatt
         if (closed || gatt == null || connection.value !is BleConnectionState.Connected || rpcStatus.value != RpcStatus.ACTIVE) {
             throw FlipperRpcException(FlipperRpcException.Reason.NOT_READY, "Flipper RPC is not ready")
         }
-        rpcClient.getDeviceInfo(timeoutMillis) { request -> sendRpcMessage(request, gatt) }
+        return gatt
+    }
+
+    override suspend fun getDeviceInfo(timeoutMillis: Long): DeviceInfo = withContext(Dispatchers.Main.immediate) {
+        val gatt = requireRpcGatt()
+        rpcClient.getDeviceInfo(timeoutMillis) { sendRpcMessage(it, gatt) }
+    }
+
+    override suspend fun getPowerInfo(timeoutMillis: Long): PowerInfo = withContext(Dispatchers.Main.immediate) {
+        val gatt = requireRpcGatt()
+        rpcClient.getPowerInfo(timeoutMillis) { sendRpcMessage(it, gatt) }
+    }
+
+    override suspend fun ping(timeoutMillis: Long) = withContext(Dispatchers.Main.immediate) {
+        val gatt = requireRpcGatt()
+        rpcClient.ping(timeoutMillis) { sendRpcMessage(it, gatt) }
+    }
+
+    private fun checkPath(path: String) {
+        require(path.startsWith('/') && path.all { it.code in 32..126 } &&
+            path.split('/').none { it == "." || it == ".." } && !path.contains("//") &&
+            (path == "/" || !path.endsWith('/'))) { "Use an absolute ASCII path without ./ or ../ segments" }
+    }
+
+    override suspend fun listFiles(path: String, timeoutMillis: Long): List<StorageEntry> =
+        withContext(Dispatchers.Main.immediate) {
+            checkPath(path)
+            storageMutex.withLock {
+                val gatt = requireRpcGatt()
+                rpcClient.listFiles(path, timeoutMillis) { sendRpcMessage(it, gatt) }
+            }
+        }
+
+    private fun abortTransfer(gatt: BluetoothGatt) {
+        if (isCurrentGatt(gatt)) {
+            closeCurrentGatt()
+            saveConnectionState(BleConnectionState.Disconnected)
+        }
+    }
+
+    private fun MessageDigest.hex(): String = digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
+
+    override suspend fun downloadFile(path: String, destination: OutputStream, timeoutMillis: Long,
+        onProgress: (TransferProgress) -> Unit): TransferResult = withContext(Dispatchers.Main.immediate) {
+        checkPath(path)
+        require(timeoutMillis > 0)
+        storageMutex.withLock {
+            val gatt = requireRpcGatt()
+            val send: suspend (FlipperProto.Main) -> BleFailure? = { sendRpcMessage(it, gatt) }
+            val file = rpcClient.stat(path, 30_000L, send)
+            require(!file.isDirectory) { "Select a file, not a directory" }
+            val digest = MessageDigest.getInstance("MD5")
+            var bytes = 0L
+            try {
+                onProgress(TransferProgress(0, file.sizeBytes))
+                rpcClient.readFile(path, timeoutMillis, send) { chunk ->
+                    withContext(Dispatchers.IO) { destination.write(chunk); digest.update(chunk) }
+                    bytes += chunk.size
+                    if (bytes > file.sizeBytes) throw IOException("File grew during download")
+                    onProgress(TransferProgress(bytes, file.sizeBytes))
+                }
+                withContext(Dispatchers.IO) { destination.flush() }
+                if (bytes != file.sizeBytes) throw IOException("Size mismatch: expected "+file.sizeBytes+", got "+bytes)
+                val localMd5 = digest.hex()
+                val remoteMd5 = rpcClient.md5(path, 60_000L, send)
+                if (localMd5 != remoteMd5) throw IOException("MD5 mismatch after download")
+                TransferResult(bytes, localMd5)
+            } catch (error: Exception) {
+                // Storage.Read cannot be paused/cancelled in-place; reset the RPC session.
+                abortTransfer(gatt)
+                throw error
+            }
+        }
+    }
+
+    override suspend fun uploadFile(path: String, source: InputStream, sizeBytes: Long?, timeoutMillis: Long,
+        onProgress: (TransferProgress) -> Unit): TransferResult = withContext(Dispatchers.Main.immediate) {
+        checkPath(path)
+        require(path != "/" && timeoutMillis > 0 && (sizeBytes == null || sizeBytes >= 0))
+        storageMutex.withLock {
+            val gatt = requireRpcGatt()
+            val send: suspend (FlipperProto.Main) -> BleFailure? = { sendRpcMessage(it, gatt) }
+            try {
+                rpcClient.stat(path, 30_000L, send)
+                throw IOException("Destination already exists; choose another name")
+            } catch (error: FlipperRpcException) {
+                if (error.reason != FlipperRpcException.Reason.REMOTE_ERROR ||
+                    error.statusCode != FlipperProto.CommandStatus.ERROR_STORAGE_NOT_EXIST_VALUE) throw error
+            }
+            val digest = MessageDigest.getInstance("MD5")
+            var bytes = 0L
+            try {
+                onProgress(TransferProgress(0, sizeBytes))
+                rpcClient.writeFile(path, source, timeoutMillis, send) { chunk ->
+                    digest.update(chunk)
+                    bytes += chunk.size
+                    onProgress(TransferProgress(bytes, sizeBytes))
+                }
+                if (sizeBytes != null && bytes != sizeBytes) throw IOException("Source size changed during upload")
+                val localMd5 = digest.hex()
+                val remoteMd5 = rpcClient.md5(path, 60_000L, send)
+                if (localMd5 != remoteMd5) throw IOException("MD5 mismatch after upload")
+                TransferResult(bytes, localMd5)
+            } catch (error: Exception) {
+                // Closing the session releases an unfinished firmware Storage.Write.
+                abortTransfer(gatt)
+                throw error
+            }
+        }
     }
 
     private fun startRpcReceiving(gatt: BluetoothGatt) {

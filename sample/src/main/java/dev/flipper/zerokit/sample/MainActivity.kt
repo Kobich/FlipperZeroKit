@@ -1,6 +1,8 @@
 package dev.flipper.zerokit.sample
 
 import android.os.Bundle
+import javax.inject.Inject
+import dev.flipper.zerokit.sample.data.repository.ConnectionSession
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -11,6 +13,14 @@ import dev.flipper.zerokit.sample.presentation.pages.MainScreen
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    @Inject lateinit var connectionSession: ConnectionSession
+
+    override fun onStart() { super.onStart(); connectionSession.onForeground() }
+    override fun onStop() {
+        if (!isChangingConfigurations) connectionSession.onBackground()
+        super.onStop()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge(

@@ -1,6 +1,8 @@
 package dev.flipper.zerokit.sample.presentation.pages.device
 
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.content.Intent
@@ -51,8 +53,6 @@ import dev.flipper.api.FlipperPermissions
 
 @Composable
 fun DeviceRoute(viewModel: DeviceViewModel = hiltViewModel()) {
-
-    // TODO(ui): rpc check connection state
 
     val uiState by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -109,7 +109,22 @@ fun DeviceRoute(viewModel: DeviceViewModel = hiltViewModel()) {
         onConnect = { viewModel.onIntent(DeviceIntent.SelectDevice(it)) },
         onDisconnect = { viewModel.onIntent(DeviceIntent.Disconnect) },
         onRefresh = { viewModel.onIntent(DeviceIntent.RefreshInfo) },
-        sendPing = { viewModel.onIntent(DeviceIntent.Ping) }
+        sendPing = { viewModel.onIntent(DeviceIntent.Ping) },
+        onCopyDiagnostics = {
+            val report = buildString {
+                appendLine("FlipperZeroKit prototype / Android " + android.os.Build.VERSION.RELEASE)
+                appendLine("Connection: "+uiState.connection)
+                appendLine("RPC: "+uiState.rpcStatus)
+                appendLine(uiState.diagnostics.pingMessage)
+                when (val info = uiState.info) {
+                    is DeviceInfoState.Ready -> info.data.fields.toSortedMap().forEach { (k, v) -> appendLine("DeviceInfo $k=$v") }
+                    else -> appendLine("DeviceInfo: $info")
+                }
+                appendLine(uiState.diagnostics.powerMessage)
+                uiState.diagnostics.power?.fields?.toSortedMap()?.forEach { (k, v) -> appendLine("PowerInfo $k=$v") }
+            }
+            context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Flipper diagnostics", report))
+        }
     )
 }
 
@@ -123,13 +138,16 @@ private fun DeviceScreen(
     onConnect: (BleDevice) -> Unit,
     onDisconnect: () -> Unit,
     onRefresh: () -> Unit,
-    sendPing: () -> Unit
+    sendPing: () -> Unit,
+    onCopyDiagnostics: () -> Unit,
 ) {
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text(stringResource(R.string.connection_title), style = MaterialTheme.typography.headlineMedium)
+        Text("Пробная версия · RPC: "+state.rpcStatus)
+        TextButton(onClick = onCopyDiagnostics) { Text("Скопировать диагностику") }
         Text(
             stringResource(R.string.connection_intro),
             style = MaterialTheme.typography.bodyMedium,
@@ -166,9 +184,20 @@ private fun DeviceScreen(
                             }
                             if (showAll) info.data.fields.toSortedMap().forEach { (key, value) -> InfoRow(key, value) }
                         }
-                        is DeviceInfoState.Failed -> Text(deviceInfoError(info), color = MaterialTheme.colorScheme.error)
+                        is DeviceInfoState.Failed -> Text(deviceInfoError(info)+"\n"+(info.detail ?: ""), color = MaterialTheme.colorScheme.error)
                     }
                 }
+                InfoPanel {
+                    Text(state.diagnostics.powerMessage)
+                    state.diagnostics.power?.let { power ->
+                        InfoRow("Заряд", power.chargePercent?.let { "$it%" } ?: "Неизвестен")
+                        InfoRow("Питание", power.chargeState ?: "Неизвестно")
+                        var showPower by remember(power) { mutableStateOf(false) }
+                        TextButton(onClick = { showPower = !showPower }) { Text("Все поля PowerInfo") }
+                        if (showPower) power.fields.toSortedMap().forEach { (key, value) -> InfoRow(key, value) }
+                    }
+                }
+                Text(state.diagnostics.pingMessage)
                 FlipperPrimaryButton(stringResource(R.string.command_ping), sendPing, enabled = state.isRpcReady)
                 FlipperPrimaryButton(stringResource(R.string.refresh_info), onRefresh,
                     enabled = state.isRpcReady && state.info !is DeviceInfoState.Loading)

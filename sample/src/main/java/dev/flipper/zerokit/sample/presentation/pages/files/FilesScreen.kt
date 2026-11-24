@@ -1,125 +1,141 @@
 package dev.flipper.zerokit.sample.presentation.pages.files
 
-import androidx.compose.foundation.BorderStroke
+import android.content.ClipData
+import android.content.ClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import dev.flipper.zerokit.sample.R
-import dev.flipper.zerokit.sample.domain.model.FlipperFile
-import dev.flipper.zerokit.sample.domain.model.FlipperFileCategory
-import dev.flipper.zerokit.sample.presentation.components.SectionTitle
 
 @Composable
 fun FilesRoute(viewModel: FilesViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    FilesScreen(state)
-}
-
-@Composable
-private fun FilesScreen(state: FilesUiState) {
+    val context = LocalContext.current
+    var downloadPath by rememberSaveable { mutableStateOf<String?>(null) }
+    var downloadDevice by rememberSaveable { mutableStateOf<String?>(null) }
+    var uploadName by rememberSaveable(state.upload?.uri?.toString()) {
+        mutableStateOf(state.upload?.originalName?.map { if (it.code in 32..126 && it != '/' && it.code != 92) it else '_' }?.joinToString("") ?: "upload.bin")
+    }
+    val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        val selected = downloadPath
+        if (uri != null && selected != null) viewModel.download(selected, uri, downloadDevice)
+        downloadPath = null
+        downloadDevice = null
+    }
+    val choose = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) viewModel.selectUpload(uri)
+    }
+    val busy = state.transfer?.active == true
+    val enabled = state.rpcReady && !busy
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(vertical = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
+        contentPadding = PaddingValues(20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Column(modifier = Modifier.padding(horizontal = 20.dp)) {
-                Text(stringResource(R.string.files_title), style = MaterialTheme.typography.headlineMedium)
-                Text(
-                    text = stringResource(R.string.files_mock_notice),
-                    modifier = Modifier.padding(top = 8.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            Text("Файлы Flipper · пробная версия", style = MaterialTheme.typography.titleLarge)
+            Text(if (state.rpcReady) "RPC готов. Нажми каталог, чтобы открыть; файл — чтобы скачать."
+                else "Сначала подключись к Flipper на вкладке устройства и дождись RPC.")
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("/", "/ext", "/int").forEach { path ->
+                    OutlinedButton(onClick = { viewModel.open(path) }, enabled = enabled) { Text(path) }
+                }
+            }
+            Text(state.path, style = MaterialTheme.typography.titleMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = { viewModel.open(state.path.substringBeforeLast('/').ifEmpty { "/" }) },
+                    enabled = enabled && state.path != "/") { Text("Вверх") }
+                TextButton(onClick = viewModel::refresh, enabled = enabled && !state.isLoading) { Text("Обновить") }
             }
         }
-        if (state.isLoading) {
-            item { Text(stringResource(R.string.files_loading), modifier = Modifier.padding(horizontal = 20.dp)) }
-        } else if (state.hasError) {
-            item { Text(stringResource(R.string.bluetooth_unknown_error), modifier = Modifier.padding(horizontal = 20.dp)) }
-        } else {
-            items(FlipperFileCategory.entries, key = { it.name }) { category ->
-                val files = state.files.filter { it.category == category }
-                FileCategoryRow(category = category, files = files)
-            }
-        }
-    }
-}
-
-@Composable
-private fun FileCategoryRow(category: FlipperFileCategory, files: List<FlipperFile>) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Column(modifier = Modifier.padding(horizontal = 20.dp)) {
-            SectionTitle(stringResource(category.titleResource()), markerColor = category.accent())
-        }
-        if (files.isEmpty()) {
-            Text(
-                stringResource(R.string.files_empty),
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall,
-            )
-        } else {
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 20.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                items(files, key = { it.path }) { file ->
-                    FlipperFileCard(file, category)
+        state.transfer?.let { transfer ->
+            item {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(transfer.title, style = MaterialTheme.typography.titleSmall)
+                        Text(transfer.bytes.toString()+" / "+(transfer.total?.toString() ?: "?")+" байт")
+                        if (transfer.active) {
+                            val total = transfer.total
+                            if (total != null && total > 0) {
+                                val progress = (transfer.bytes.toDouble() / total).toFloat().coerceIn(0f, 1f)
+                                LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+                                Text((progress * 100).toInt().toString()+"%")
+                            } else LinearProgressIndicator(Modifier.fillMaxWidth())
+                        }
+                        Text(transfer.message)
+                        if (transfer.active) TextButton(onClick = viewModel::cancelTransfer) { Text("Отменить передачу") }
+                    }
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun FlipperFileCard(file: FlipperFile, category: FlipperFileCategory) {
-    val accent = category.accent()
-    Card(
-        modifier = Modifier.width(194.dp),
-        border = BorderStroke(1.dp, accent.copy(alpha = 0.6f)),
-        colors = CardDefaults.cardColors(
-            containerColor = accent.copy(alpha = 0.10f),
-        ),
-        // TODO(files): add onClick only after defining a real file-detail interaction.
-    ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text(
-                file.filename,
-                maxLines = 2,
-                minLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                stringResource(R.string.file_size_bytes, file.sizeBytes),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        item {
+            OutlinedButton(onClick = { choose.launch(arrayOf("*/*")) }, enabled = enabled && state.path != "/") {
+                Text("Выбрать файл телефона")
+            }
+            state.upload?.let { selected ->
+                Text("Источник: "+selected.originalName+" ("+(selected.sizeBytes?.toString() ?: "?")+" байт)")
+                OutlinedTextField(value = uploadName, onValueChange = { uploadName = it },
+                    enabled = enabled, label = { Text("Имя на Flipper (ASCII)") }, singleLine = true,
+                    modifier = Modifier.fillMaxWidth())
+                Text("Назначение: "+state.path.trimEnd('/')+"/"+uploadName)
+                Text("Существующее имя не перезаписывается. После сбоя частичный файл может остаться.",
+                    style = MaterialTheme.typography.bodySmall)
+                Button(onClick = { viewModel.upload(uploadName) }, enabled = enabled && state.path != "/") {
+                    Text("Отправить на Flipper")
+                }
+            }
+        }
+        if (state.transfer != null || state.error != null) item {
+            TextButton(onClick = {
+                val text = "FlipperZeroKit prototype\nDevice: "+state.deviceAddress+"\nPath: "+state.path+
+                    "\nRPC ready: "+state.rpcReady+"\nError: "+state.error+"\nTransfer: "+state.transfer
+                context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("File test result", text))
+            }) { Text("Скопировать результат") }
+        }
+        state.error?.let { error -> item { Text(error, color = MaterialTheme.colorScheme.error) } }
+        if (state.isLoading) item { LinearProgressIndicator(Modifier.fillMaxWidth()); Text("Чтение каталога…") }
+        if (state.rpcReady && !state.isLoading && state.files.isEmpty() && state.error == null)
+            item { Text("Каталог пуст") }
+        items(state.files, key = { it.name }) { file ->
+            Card(onClick = {
+                if (enabled) {
+                    val path = state.path.trimEnd('/') + "/" + file.name
+                    if (file.isDirectory) viewModel.open(path)
+                    else { downloadPath = path; downloadDevice = state.deviceAddress; save.launch(file.name) }
+                }
+            }, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp)) {
+                    Text((if (file.isDirectory) "Каталог: " else "Файл: ")+file.name, style = MaterialTheme.typography.titleSmall)
+                    if (!file.isDirectory) Text(file.sizeBytes.toString()+" байт · нажми для скачивания")
+                }
+            }
         }
     }
 }

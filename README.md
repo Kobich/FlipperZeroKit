@@ -8,11 +8,13 @@
 ## Модули
 
 - `:flipper` — Android Library: сканирование, сопряжение, GATT, RX/TX, protobuf-схемы и RPC-framing. Без Compose и Hilt.
-- `:sample` — приложение для ручной проверки. Compose и Hilt остаются здесь. Есть кнопка ping и реальные сведения DeviceInfo; файлы пока демонстрационные.
+- `:sample` — приложение для ручной проверки. Compose и Hilt остаются здесь. Пробный интерфейс: DeviceInfo, PowerInfo/заряд, PingResponse, реальные каталоги и передача файлов через SAF с прогрессом и сверкой MD5.
 
 Актуальная основа — ветка protobuf-framing (5d4be58), где найдены framing и ping. ble-transport уже влита в main.
-В библиотеке доступны getDeviceInfo, sendMessage, messages и nextCommandId. DeviceInfo собирается через внутренний RpcClient; PowerInfo и реальная работа с файлами ещё не реализованы.
+В библиотеке доступны getDeviceInfo, getPowerInfo, ping, listFiles, downloadFile, uploadFile и raw RPC. Внутренний RpcClient маршрутизирует ответы по command_id; файловые серии передаются потоком. Полировка и физическая приёмка ещё предстоят.
 Ping перенесён в sample; по проверке пользователя работает, наш физический прогон ещё предстоит.
+
+**Как сразу проверить:** [пробный прогон и ограничения](docs/PROTOTYPE.md). Готовый APK: sample/build/outputs/apk/debug/sample-debug.apk.
 
 Структура библиотеки и пример использования: [flipper/README.md](flipper/README.md). Публичный API находится в api, реализация — в internal.
 
@@ -45,7 +47,7 @@ client.close()      // Окончательное освобождение; по
 В sample он живёт в Hilt SingletonComponent до завершения процесса.
 `Connected` означает завершение GATT-подписок; готовность RPC проверяется отдельно по `rpcStatus`.
 Сканер пока показывает все именованные BLE-устройства, а не только Flipper.
-Успех sendMessage означает завершённые GATT write; ответ RPC нужно отдельно дождаться и проверить. Для ручного API messages не завершается при disconnect и может пропускать старые сообщения у медленных наблюдателей. getDeviceInfo обрабатывает timeout/отмену/потерю сессии внутри модуля.
+Успех sendMessage означает завершённые GATT write; ответ RPC нужно отдельно дождаться и проверить. Для ручного API messages не завершается при disconnect и может пропускать старые сообщения у медленных наблюдателей. Типизированные операции обрабатывают timeout/отмену/потерю сессии внутри модуля. Отмена/ошибка начавшейся файловой передачи закрывает сессию; частичный файл может остаться.
 
 ## Сборка
 

@@ -27,18 +27,6 @@
     <string name="command_ping">Отправить ping</string>
 
     <string name="loading_info">Получение данных с Flipper…</string>
-    <string name="files_title">Файлы Flipper</string>
-    <string name="files_mock_notice">Пример содержимого памяти. Файлы ещё не считываются с устройства.</string>
-    <string name="files_loading">Загрузка списка…</string>
-    <string name="files_empty">В этой категории нет файлов.</string>
-    <string name="file_size_bytes">%1$d Б</string>
-    <string name="category_nfc">NFC</string>
-    <string name="category_rfid">RFID</string>
-    <string name="category_subghz">Sub-GHz</string>
-    <string name="category_infrared">Infrared</string>
-    <string name="category_ibutton">iButton</string>
-    <string name="category_badusb">BadUSB</string>
-    <string name="category_other">Прочее</string>
 
     <string name="permission_denied">Для поиска устройств необходимо разрешение Bluetooth (на Android 11 - геолокация).</string>
     <string name="bluetooth_disabled">Bluetooth выключен. Включите его для поиска устройств.</string>

@@ -15,7 +15,7 @@ StateFlow описывает connection/rpcStatus/discoveredDevices/isScanning, 
 
 Потребитель зависит от api и api/model. Ссылка на внутреннюю реализацию есть только внутри фабрики Flipper.create; тип DefaultFlipper наружу не возвращается.
 Прежние BleConnectionRepository и отдельная фабрика FlipperZeroClient удалены из нашего API.
-Сгенерированные protobuf-типы пока экспортируются вместе с protobuf-javalite: это существующий низкоуровневый RPC-контракт, для DeviceInfo уже есть типизированная операция; расширение на остальные RPC ещё предстоит.
+Сгенерированные protobuf-типы пока экспортируются вместе с protobuf-javalite: это существующий низкоуровневый RPC-контракт, есть типизированные операции DeviceInfo, PowerInfo, Ping и Storage (List/Stat/Read/Write/Md5sum).
 
 ## Реализация
 
@@ -43,4 +43,4 @@ Connected означает завершённые GATT-подписки; RPC_STA
 getDeviceInfo проверяет readiness, отправляет запрос в исходную GATT-сессию и ожидает полную серию с timeout. Disconnect/RPC NOT_ACTIVE завершает ожидающие запросы ошибкой; caller cancellation сохраняется как отмена.
 
 BLE/framing и схемы перенесены из protobuf-framing проекта коллеги. Состояние и ограничения DeviceInfo описаны в BASELINE.md.
-DeviceInfo реализован; следующий функциональный шаг после физической проверки — PowerInfo и затем Storage. Детали реализации и чек-лист — в DEVICE_INFO.md.
+Реализован пробный сквозной сценарий DeviceInfo/PowerInfo/Ping/Storage. Storage сериализован, потоки телефона принадлежат sample, клиент связан с GATT-сессией. ConnectionSession в sample сохраняет последнее успешно подключённое устройство и делает одну попытку при входе Activity. Физический прогон и ограничения — в PROTOTYPE.md; сведения — в DEVICE_INFO.md.

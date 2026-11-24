@@ -1,6 +1,8 @@
 package dev.flipper.zerokit.sample.presentation.pages.device
 
 import android.util.Log
+import android.os.SystemClock
+import kotlinx.coroutines.flow.update
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -37,12 +39,15 @@ class DeviceViewModel @Inject constructor(
 ) : ViewModel() {
     private val info = MutableStateFlow<DeviceInfoState>(DeviceInfoState.None)
     private var infoJob: Job? = null
+    private var powerJob: Job? = null
+    private var pingJob: Job? = null
+    private val diagnostics = MutableStateFlow(DeviceDiagnostics())
 
     val state: StateFlow<DeviceUiState> = combine(
         flipper.connection, flipper.discoveredDevices, flipper.isScanning, info, flipper.rpcStatus,
     ) { connection, devices, scanning, deviceInfo, rpcStatus ->
         DeviceUiState(connection, devices, scanning, deviceInfo, rpcStatus)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DeviceUiState())
+    }.combine(diagnostics) { state, details -> state.copy(diagnostics = details) }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DeviceUiState())
 
     init {
         viewModelScope.launch {
@@ -50,7 +55,12 @@ class DeviceViewModel @Inject constructor(
                 connection is BleConnectionState.Connected && rpcStatus == RpcStatus.ACTIVE
             }.distinctUntilChanged().collect { ready ->
                 infoJob?.cancel()
-                if (ready) refreshInfo() else info.value = DeviceInfoState.None
+                powerJob?.cancel()
+                pingJob?.cancel()
+                if (ready) refreshInfo() else {
+                    info.value = DeviceInfoState.None
+                    diagnostics.value = DeviceDiagnostics()
+                }
             }
         }
     }
@@ -63,7 +73,7 @@ class DeviceViewModel @Inject constructor(
                 is DeviceIntent.SelectDevice -> connect(intent.device)
                 DeviceIntent.Disconnect -> disconnect()
                 DeviceIntent.RefreshInfo -> if (isRpcReady()) refreshInfo()
-                DeviceIntent.Ping -> if (isRpcReady()) ping()
+                DeviceIntent.Ping -> if (isRpcReady()) sendPing()
             }
         }
     }
@@ -71,7 +81,32 @@ class DeviceViewModel @Inject constructor(
     private fun isRpcReady() = flipper.connection.value is BleConnectionState.Connected &&
         flipper.rpcStatus.value == RpcStatus.ACTIVE
 
+    private fun sendPing() {
+        if (pingJob?.isActive == true) return
+        pingJob = viewModelScope.launch {
+            diagnostics.update { it.copy(pingMessage = "Ожидание PingResponse…") }
+            val started = SystemClock.elapsedRealtime()
+            try {
+                ping()
+                diagnostics.update { it.copy(pingMessage = "Ping OK: "+(SystemClock.elapsedRealtime()-started)+" мс") }
+            } catch (cancel: CancellationException) { throw cancel }
+            catch (error: Exception) { diagnostics.update { it.copy(pingMessage = "Ping: "+error.message) } }
+        }
+    }
+
     private fun refreshInfo() {
+        powerJob?.cancel()
+        powerJob = viewModelScope.launch {
+            diagnostics.update { it.copy(powerMessage = "Получение PowerInfo…") }
+            try {
+                val power = flipper.getPowerInfo()
+                diagnostics.update { it.copy(power = power, powerMessage = "PowerInfo получен") }
+            } catch (cancel: CancellationException) { throw cancel }
+            catch (error: Exception) {
+                Log.e("DeviceViewModel", "PowerInfo failed", error)
+                diagnostics.update { it.copy(power = null, powerMessage = "PowerInfo: "+error.message) }
+            }
+        }
         infoJob?.cancel()
         infoJob = viewModelScope.launch {
             info.value = DeviceInfoState.Loading
@@ -81,10 +116,10 @@ class DeviceViewModel @Inject constructor(
                 throw cancel
             } catch (error: FlipperRpcException) {
                 Log.e("DeviceViewModel", "DeviceInfo failed: " + error.reason, error)
-                info.value = DeviceInfoState.Failed(error.reason, error.statusCode)
+                info.value = DeviceInfoState.Failed(error.reason, error.statusCode, error.message)
             } catch (error: Exception) {
                 Log.e("DeviceViewModel", "DeviceInfo failed", error)
-                info.value = DeviceInfoState.Failed()
+                info.value = DeviceInfoState.Failed(detail = error.message)
             }
         }
     }
