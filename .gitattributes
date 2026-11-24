@@ -1,0 +1,2 @@
+# Preserve exact bytes and documented checksums of manual-test fixtures.
+test-data/manual/** -text
