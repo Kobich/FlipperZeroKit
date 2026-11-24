@@ -43,12 +43,12 @@ class ConnectionSession @Inject constructor(
         foreground = true
         if (manuallyDisconnected || flipper.isScanning.value ||
             flipper.connection.value !is BleConnectionState.Disconnected && flipper.connection.value !is BleConnectionState.Failed) return
-        if (!FlipperPermissions.requiredPermissions.all {
+        if (!FlipperPermissions.connectPermissions.all {
             ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
         }) return
         val address = preferences.getString("address", null) ?: return
         val name = preferences.getString("name", null) ?: "Flipper"
-        scope.launch { flipper.connect(BleDevice(name, address, 0)) }
+        scope.launch { flipper.connect(BleDevice(name, address)) }
     }
 
     fun onBackground() { foreground = false; manuallyDisconnected = false }

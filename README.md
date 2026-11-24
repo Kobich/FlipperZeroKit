@@ -28,8 +28,11 @@ import dev.flipper.api.FlipperPermissions
 import dev.flipper.api.Flipper
 
 val client = Flipper.create(applicationContext)
-val permissions = FlipperPermissions.requiredPermissions
+val permissions = FlipperPermissions.requiredPermissions // для поиска
+// FlipperPermissions.connectPermissions — только список известных/прямое подключение
 // Хост запрашивает runtime-разрешения и включает Bluetooth через системный UI.
+// Для известного устройства можно обойтись без сканирования:
+// val known = client.getKnownDevices() // KnownDevicesResult: сопряжённые + системный GATT
 // Ниже — вызовы из coroutine после получения разрешений:
 client.startScan()
 // client.discoveredDevices: StateFlow<List<BleDevice>>
@@ -46,7 +49,7 @@ client.close()      // Окончательное освобождение; по
 Владелец клиента — хост. Один экземпляр на одну управляемую сессию; не создавать клиент при каждой рекомпозиции.
 В sample он живёт в Hilt SingletonComponent до завершения процесса.
 `Connected` означает завершение GATT-подписок; готовность RPC проверяется отдельно по `rpcStatus`.
-Сканер пока показывает все именованные BLE-устройства, а не только Flipper.
+На экране есть отдельный список уже известных устройств: сопряжённые BLE и текущие GATT-подключения Android. Их можно выбирать без общего поиска; существующее сопряжение переиспользуется. Системный статус подключения отделён от RPC-готовности приложения. Сканер новых устройств пока показывает все именованные BLE-устройства, а не только Flipper.
 Успех sendMessage означает завершённые GATT write; ответ RPC нужно отдельно дождаться и проверить. Для ручного API messages не завершается при disconnect и может пропускать старые сообщения у медленных наблюдателей. Типизированные операции обрабатывают timeout/отмену/потерю сессии внутри модуля. Отмена/ошибка начавшейся файловой передачи закрывает сессию; частичный файл может остаться.
 
 ## Сборка

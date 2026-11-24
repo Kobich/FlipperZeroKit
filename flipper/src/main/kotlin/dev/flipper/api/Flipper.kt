@@ -10,6 +10,7 @@ import java.io.OutputStream
 import com.flipperdevices.protobuf.FlipperProto
 import dev.flipper.api.model.BleConnectionState
 import dev.flipper.api.model.BleDevice
+import dev.flipper.api.model.KnownDevicesResult
 import dev.flipper.api.model.DeviceInfo
 import dev.flipper.api.model.FlipperRpcException
 import dev.flipper.api.model.BleFailure
@@ -54,6 +55,12 @@ interface Flipper {
      */
     suspend fun uploadFile(path: String, source: InputStream, sizeBytes: Long? = null,
         timeoutMillis: Long = 600_000L, onProgress: (TransferProgress) -> Unit = {}): TransferResult
+
+    /** Saved BLE/dual/unknown-type devices plus currently connected system GATT devices.
+     * Requires connectPermissions, never scan/location permission; no connection state is changed.
+     * Connection/RPC readiness must still be established with connect(device).
+     */
+    suspend fun getKnownDevices(): KnownDevicesResult
 
     suspend fun startScan()
     suspend fun stopScan()

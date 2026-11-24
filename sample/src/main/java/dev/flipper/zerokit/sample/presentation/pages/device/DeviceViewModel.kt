@@ -7,6 +7,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.flipper.api.Flipper
+import dev.flipper.api.model.KnownDevicesResult
+import dev.flipper.api.model.BleFailure
 import dev.flipper.api.model.BleConnectionState
 import dev.flipper.api.model.FlipperRpcException
 import dev.flipper.api.model.RpcStatus
@@ -41,13 +43,16 @@ class DeviceViewModel @Inject constructor(
     private var infoJob: Job? = null
     private var powerJob: Job? = null
     private var pingJob: Job? = null
+    private var knownDevicesJob: Job? = null
+    private val knownDevices = MutableStateFlow(KnownDevicesUiState())
     private val diagnostics = MutableStateFlow(DeviceDiagnostics())
 
     val state: StateFlow<DeviceUiState> = combine(
         flipper.connection, flipper.discoveredDevices, flipper.isScanning, info, flipper.rpcStatus,
     ) { connection, devices, scanning, deviceInfo, rpcStatus ->
         DeviceUiState(connection, devices, scanning, deviceInfo, rpcStatus)
-    }.combine(diagnostics) { state, details -> state.copy(diagnostics = details) }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DeviceUiState())
+    }.combine(diagnostics) { state, details -> state.copy(diagnostics = details) }.combine(knownDevices) { state, known -> state.copy(knownDevices = known) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DeviceUiState())
 
     init {
         viewModelScope.launch {
@@ -68,12 +73,30 @@ class DeviceViewModel @Inject constructor(
     fun onIntent(intent: DeviceIntent) {
         viewModelScope.launch {
             when (intent) {
+                DeviceIntent.RefreshKnownDevices -> refreshKnownDevices()
                 DeviceIntent.StartScan -> startScan()
                 DeviceIntent.StopScan -> stopScan()
                 is DeviceIntent.SelectDevice -> connect(intent.device)
                 DeviceIntent.Disconnect -> disconnect()
                 DeviceIntent.RefreshInfo -> if (isRpcReady()) refreshInfo()
                 DeviceIntent.Ping -> if (isRpcReady()) sendPing()
+            }
+        }
+    }
+
+    private fun refreshKnownDevices() {
+        knownDevicesJob?.cancel()
+        knownDevicesJob = viewModelScope.launch {
+            knownDevices.value = knownDevices.value.copy(isLoading = true, failure = null)
+            try {
+                knownDevices.value = when (val result = flipper.getKnownDevices()) {
+                    is KnownDevicesResult.Available -> KnownDevicesUiState(result.devices, hasLoaded = true)
+                    is KnownDevicesResult.Failed -> KnownDevicesUiState(hasLoaded = true, failure = result.reason)
+                }
+            } catch (cancel: CancellationException) { throw cancel }
+            catch (error: Exception) {
+                Log.e("DeviceViewModel", "Known devices failed", error)
+                knownDevices.value = KnownDevicesUiState(hasLoaded = true, failure = BleFailure.Unknown(error.message))
             }
         }
     }

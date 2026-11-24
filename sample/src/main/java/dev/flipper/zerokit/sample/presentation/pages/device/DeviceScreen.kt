@@ -25,10 +25,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -37,6 +37,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.flipper.zerokit.sample.R
 import dev.flipper.api.model.BleConnectionState
@@ -51,60 +53,60 @@ import dev.flipper.zerokit.sample.presentation.components.InfoRow
 import dev.flipper.zerokit.sample.presentation.components.SectionTitle
 import dev.flipper.api.FlipperPermissions
 
+private enum class EntryAction { KNOWN_DEVICES, SCAN }
+
 @Composable
 fun DeviceRoute(viewModel: DeviceViewModel = hiltViewModel()) {
 
     val uiState by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
-    val permissions = remember { FlipperPermissions.requiredPermissions }
+    var pendingAction by rememberSaveable { mutableStateOf(EntryAction.KNOWN_DEVICES) }
     var permissionDenied by rememberSaveable { mutableStateOf(false) }
     var enableDenied by rememberSaveable { mutableStateOf(false) }
-
-    val enableBluetooth = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult(),
-    ) { result ->
+    val dispatchAction: (EntryAction) -> Unit = { action ->
+        viewModel.onIntent(if (action == EntryAction.SCAN) DeviceIntent.StartScan else DeviceIntent.RefreshKnownDevices)
+    }
+    val permissionsFor: (EntryAction) -> Array<String> = { action ->
+        if (action == EntryAction.SCAN) FlipperPermissions.requiredPermissions else FlipperPermissions.connectPermissions
+    }
+    val enableBluetooth = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             enableDenied = false
-            viewModel.onIntent(DeviceIntent.StartScan)
-        } else {
-            enableDenied = true
-        }
+            dispatchAction(pendingAction)
+        } else enableDenied = true
     }
-
-    // Runs only from UI events / permission results, never inside composition.
-    val beginScan = {
-        val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
-        if (adapter?.isEnabled == true) {
-            viewModel.onIntent(DeviceIntent.StartScan)
-        } else if (adapter != null) {
-            enableBluetooth.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
-        } else {
-            // Repository will expose BluetoothUnsupported as a typed failure.
-            viewModel.onIntent(DeviceIntent.StartScan)
-        }
+    val beginAction: (EntryAction) -> Unit = { action ->
+        try {
+            val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
+            if (adapter != null && !adapter.isEnabled) enableBluetooth.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+            else dispatchAction(action)
+        } catch (_: SecurityException) { permissionDenied = true }
     }
-    val requestPermissions = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions(),
-    ) { outcome ->
-        if (permissions.all { outcome[it] == true }) {
-            permissionDenied = false
-            beginScan()
-        } else {
-            permissionDenied = true
+    val requestPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { outcome ->
+        val granted = permissionsFor(pendingAction).all {
+            outcome[it] == true || ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
         }
+        permissionDenied = !granted
+        if (granted) beginAction(pendingAction)
     }
+    val requestAction: (EntryAction) -> Unit = { action ->
+        pendingAction = action
+        val permissions = permissionsFor(action)
+        val granted = permissions.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
+        if (granted) { permissionDenied = false; beginAction(action) }
+        else requestPermissions.launch(permissions)
+    }
+    // Read-only refresh on entry/return, without starting a scan or interrupting an existing session.
+    // Permission prompts and Bluetooth enabling remain explicit user actions.
+    LifecycleEventEffect(Lifecycle.Event.ON_START) { viewModel.onIntent(DeviceIntent.RefreshKnownDevices) }
 
     DeviceScreen(
         state = uiState,
         permissionDenied = permissionDenied,
         enableDenied = enableDenied,
-        onScan = {
-            val granted = permissions.all {
-                ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
-            }
-            if (granted) beginScan() else requestPermissions.launch(permissions)
-        },
+        onScan = { requestAction(EntryAction.SCAN) },
+        onKnownDevices = { requestAction(EntryAction.KNOWN_DEVICES) },
         onStopScan = { viewModel.onIntent(DeviceIntent.StopScan) },
         onConnect = { viewModel.onIntent(DeviceIntent.SelectDevice(it)) },
         onDisconnect = { viewModel.onIntent(DeviceIntent.Disconnect) },
@@ -115,6 +117,7 @@ fun DeviceRoute(viewModel: DeviceViewModel = hiltViewModel()) {
                 appendLine("FlipperZeroKit prototype / Android " + android.os.Build.VERSION.RELEASE)
                 appendLine("Connection: "+uiState.connection)
                 appendLine("RPC: "+uiState.rpcStatus)
+                appendLine("Known devices: "+uiState.knownDevices)
                 appendLine(uiState.diagnostics.pingMessage)
                 when (val info = uiState.info) {
                     is DeviceInfoState.Ready -> info.data.fields.toSortedMap().forEach { (k, v) -> appendLine("DeviceInfo $k=$v") }
@@ -134,6 +137,7 @@ private fun DeviceScreen(
     permissionDenied: Boolean,
     enableDenied: Boolean,
     onScan: () -> Unit,
+    onKnownDevices: () -> Unit,
     onStopScan: () -> Unit,
     onConnect: (BleDevice) -> Unit,
     onDisconnect: () -> Unit,
@@ -227,6 +231,26 @@ private fun DeviceScreen(
                 if (enableDenied) {
                     Text(stringResource(R.string.bluetooth_enable_denied), color = MaterialTheme.colorScheme.error)
                 }
+                SectionTitle("Уже известные устройства")
+                Text("Можно выбрать сопряжённый Flipper без поиска. Метка подключения относится к Android; RPC приложения запускается отдельно.",
+                    style = MaterialTheme.typography.bodySmall)
+                FlipperOutlinedButton("Обновить подключённые и сопряжённые", onKnownDevices,
+                    enabled = !state.knownDevices.isLoading)
+                if (state.knownDevices.isLoading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                state.knownDevices.failure?.let { Text(failureText(it), color = MaterialTheme.colorScheme.error) }
+                if (state.knownDevices.hasLoaded && !state.knownDevices.isLoading &&
+                    state.knownDevices.failure == null && state.knownDevices.devices.isEmpty()) Text("Сохранённых BLE-устройств и GATT-подключений нет")
+                state.knownDevices.devices.forEach { known ->
+                    Card(onClick = { onConnect(known.device) }, modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(known.device.name, style = MaterialTheme.typography.titleSmall)
+                            Text(known.device.address, style = MaterialTheme.typography.bodySmall)
+                            if (known.isConnectedToSystem) Text("GATT подключён в Android", color = MaterialTheme.colorScheme.primary)
+                            Text(if (known.isBonded) "Сопряжено · нажми для подключения приложения" else "Не сопряжено · может потребоваться подтверждение")
+                        }
+                    }
+                }
+                SectionTitle("Поиск новых устройств")
                 if (state.isScanning) {
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                     Text(stringResource(R.string.scanning))

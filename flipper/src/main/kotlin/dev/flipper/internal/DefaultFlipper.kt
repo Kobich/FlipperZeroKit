@@ -22,6 +22,8 @@ import dev.flipper.api.model.BleFailure
 import dev.flipper.api.model.RpcStatus
 import dev.flipper.internal.ble.BlePairingManager
 import dev.flipper.internal.ble.connectGattCompat
+import dev.flipper.internal.ble.KnownDevicesProvider
+import dev.flipper.api.model.KnownDevicesResult
 import dev.flipper.internal.ble.BleScanner
 import dev.flipper.internal.ble.FlipperGattUuid
 import dev.flipper.internal.ble.GattManager
@@ -143,6 +145,11 @@ internal class DefaultFlipper(
     private var rpcReceiveJob: Job? = null
 
     // ---------- Public API ---------- //
+
+    override suspend fun getKnownDevices(): KnownDevicesResult = withContext(Dispatchers.Main.immediate) {
+        check(!closed) { "Flipper is closed" }
+        withContext(Dispatchers.IO) { KnownDevicesProvider(context, permissionChecker).get() }
+    }
 
     override suspend fun startScan() {
         withContext(Dispatchers.Main) {
