@@ -3,11 +3,14 @@
 [Скачать APK](FlipperZeroKit-debug.apk?raw=true).
 
 - Вариант: sample debug, подписан debug-ключом.
-- Исходный коммит: 1019883cc8d55a676a07e9cb2f94f7fbaf954ee6.
+- Исходный коммит: eff9de9689785a4bb70eb97d0781500c4b95ba22.
 - Application ID: dev.flipper.zerokit.sample.
-- Version: 1.0, code 1.
-- SHA-256: 7949f41d302ddd799432736e286077ff5d69b14bfaef9aa2db7a7278fd30fe2b.
+- Version: 1.1-prototype, code 2.
+- SHA-256: 64ec9f2df6323096a627522cc0c0091b0c1b282368ae9917f69a7e5530a1ce5e.
 
-APK скопирован из sample/build/outputs/apk/debug/sample-debug.apk после успешного assembleDebug.
+Добавлен выбор сопряжённого или системно подключённого Flipper без общего BLE-поиска: «Уже известные устройства».
+Системное GATT-подключение и готовая RPC-сессия приложения отображаются раздельно; существующая пара переиспользуется.
+
+APK скопирован после успешного assembleDebug; 29 регрессионных тестов и оба Lint прошли (sample 0/0, flipper 0 ошибок/3 прежних предупреждения).
 Инструкция проверки и ограничения: [PROTOTYPE.md](../docs/PROTOTYPE.md).
-Физическая проверка нового сценария на Flipper ещё предстоит.
+Физическая проверка на Flipper ещё предстоит.
