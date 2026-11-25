@@ -19,14 +19,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Bluetooth
 import androidx.compose.material.icons.outlined.LinkOff
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.remember
@@ -52,9 +49,6 @@ import dev.flipper.api.model.BleConnectionState
 import dev.flipper.api.model.BleDevice
 import androidx.compose.material3.TextButton
 import dev.flipper.api.model.BleFailure
-import dev.flipper.ui.internal.components.FlipperOutlinedButton
-import dev.flipper.ui.internal.components.FlipperPrimaryButton
-import dev.flipper.ui.internal.components.SectionTitle
 import dev.flipper.api.FlipperPermissions
 
 private enum class EntryAction { KNOWN_DEVICES, SCAN }
@@ -156,7 +150,6 @@ private fun DeviceScreen(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (!embedded) Text(stringResource(R.string.flipper_connection_title), style = MaterialTheme.typography.titleLarge)
-        if (!state.isRpcReady) TextButton(onClick = onCopyDiagnostics) { Text(stringResource(R.string.flipper_copy_diagnostics)) }
         val connection = state.connection
         val pendingDevice = when (connection) {
             is BleConnectionState.Pairing -> connection.device
@@ -180,7 +173,10 @@ private fun DeviceScreen(
                     else -> stringResource(R.string.flipper_device_connecting)
                 }
                 DeviceOverview(pendingDevice, status)
-                DisconnectButton(onDisconnect, Modifier.align(Alignment.End))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = onCopyDiagnostics) { Text(stringResource(R.string.flipper_copy_diagnostics)) }
+                    DisconnectButton(onDisconnect)
+                }
             }
             else -> {
                 if (connection is BleConnectionState.Failed) {
@@ -189,71 +185,13 @@ private fun DeviceScreen(
                         color = MaterialTheme.colorScheme.error,
                     )
                 }
-                Text(
-                    stringResource(R.string.flipper_connection_intro),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
                 if (permissionDenied) {
                     Text(stringResource(R.string.flipper_permission_denied), color = MaterialTheme.colorScheme.error)
                 }
                 if (enableDenied) {
                     Text(stringResource(R.string.flipper_bluetooth_enable_denied), color = MaterialTheme.colorScheme.error)
                 }
-                SectionTitle("Known devices")
-                Text("Select a paired Flipper without scanning. The Android connection badge shows Bluetooth status.",
-                    style = MaterialTheme.typography.bodySmall)
-                FlipperOutlinedButton("Refresh known devices", onKnownDevices,
-                    enabled = !state.knownDevices.isLoading)
-                if (state.knownDevices.isLoading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                state.knownDevices.failure?.let { Text(failureText(it), color = MaterialTheme.colorScheme.error) }
-                if (state.knownDevices.hasLoaded && !state.knownDevices.isLoading &&
-                    state.knownDevices.failure == null && state.knownDevices.devices.isEmpty()) Text("No paired or connected Bluetooth devices")
-                state.knownDevices.devices.forEach { known ->
-                    Card(onClick = { onConnect(known.device) }, modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(known.device.name, style = MaterialTheme.typography.titleSmall)
-                            Text(known.device.address, style = MaterialTheme.typography.bodySmall)
-                            if (known.isConnectedToSystem) Text("Connected in Android", color = MaterialTheme.colorScheme.primary)
-                            Text(if (known.isBonded) "Paired · tap to connect" else "Pairing may require confirmation")
-                        }
-                    }
-                }
-                SectionTitle("Find new devices")
-                if (state.isScanning) {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    Text(stringResource(R.string.flipper_scanning))
-                    FlipperOutlinedButton(stringResource(R.string.flipper_stop_scan), onStopScan)
-                } else {
-                    FlipperPrimaryButton(
-                        label = stringResource(
-                            if (state.devices.isEmpty()) R.string.flipper_connect_device else R.string.flipper_scan_again,
-                        ),
-                        onClick = onScan,
-                    )
-                }
-                if (state.isScanning || state.devices.isNotEmpty()) {
-                    SectionTitle(stringResource(R.string.flipper_available_devices))
-                    if (state.devices.isEmpty()) Text(stringResource(R.string.flipper_no_devices_yet))
-                    state.devices.forEach { device ->
-                        Card(onClick = { onConnect(device) }, modifier = Modifier.fillMaxWidth()) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(16.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                Icon(Icons.Outlined.Bluetooth, contentDescription = null)
-                                Column {
-                                    Text(device.name, style = MaterialTheme.typography.titleSmall)
-                                    Text(
-                                        device.address,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
+                DevicePicker(state, onScan, onStopScan, onKnownDevices, onCopyDiagnostics, onConnect)
             }
         }
     }
@@ -293,15 +231,15 @@ private fun DeviceActions(
 }
 
 @Composable
-private fun DisconnectButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
-    IconButton(onClick = onClick, modifier = modifier) {
+private fun DisconnectButton(onClick: () -> Unit) {
+    IconButton(onClick = onClick) {
         Icon(Icons.Outlined.LinkOff, contentDescription = stringResource(R.string.flipper_disconnect_device),
             tint = MaterialTheme.colorScheme.error)
     }
 }
 
 @Composable
-private fun failureText(failure: BleFailure): String = when (failure) {
+internal fun failureText(failure: BleFailure): String = when (failure) {
     BleFailure.BluetoothUnsupported -> stringResource(R.string.flipper_bluetooth_not_supported)
     BleFailure.BluetoothDisabled -> stringResource(R.string.flipper_bluetooth_disabled)
     BleFailure.PermissionMissing -> stringResource(R.string.flipper_bluetooth_permission_missing)
