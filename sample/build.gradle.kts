@@ -19,8 +19,8 @@ android {
         applicationId = "dev.flipper.zerokit.sample"
         minSdk = 23
         targetSdk = 37
-        versionCode = 8
-        versionName = "1.7-prototype"
+        versionCode = 9
+        versionName = "1.8-prototype"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

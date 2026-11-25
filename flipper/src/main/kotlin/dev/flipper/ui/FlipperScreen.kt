@@ -2,22 +2,33 @@ package dev.flipper.ui
 
 import android.app.Application
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import dev.flipper.R
 import dev.flipper.api.Flipper
 import dev.flipper.ui.internal.connection.ConnectionViewModel
 import dev.flipper.ui.internal.pages.device.DeviceDetailsStore
@@ -59,12 +70,36 @@ fun FlipperScreen(flipper: Flipper, modifier: Modifier = Modifier, connectionCon
     }
     LazyColumn(modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         if (!status.isNullOrBlank()) item("connection-status") { Text(status, Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) }
-        if (recovering) item("recovery") { Text("Reconnecting and cleaning up…", Modifier.padding(20.dp)) }
         item("device") { DeviceRoute(device, embedded = true, connectingDevice = connectingDevice) }
         item("file-controls") { FilesControls(state, files, actions, deferredCleanup) }
         items(state.files, key = { state.path+"/"+it.name }) { file ->
             FileRow(file, state.rpcReady && state.transfer?.active != true) {
                 if (file.isDirectory) files.open(state.path.trimEnd('/')+"/"+file.name) else actions.download(file)
+            }
+        }
+    }
+    if (recovering || state.transfer?.isCleaningUp == true) {
+        RecoveryDialog(recovering)
+    }
+}
+
+@Composable
+private fun RecoveryDialog(reconnecting: Boolean) {
+    Dialog(
+        onDismissRequest = {},
+        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
+    ) {
+        Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(24.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 3.dp)
+                Text(
+                    text = stringResource(if (reconnecting) R.string.flipper_recovering_transfer else R.string.flipper_cleaning_up_transfer),
+                    style = MaterialTheme.typography.bodyLarge,
+                )
             }
         }
     }

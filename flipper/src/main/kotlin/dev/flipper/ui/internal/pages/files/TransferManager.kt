@@ -17,6 +17,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -51,19 +52,35 @@ internal class TransferManager private constructor(private val app: Application)
     fun onServiceDestroyed() { if (_state.value?.active == true) cancel() }
 
     private fun finish(message: String, success: Boolean = false) {
-        _state.update { it?.copy(active = false, successful = success, message = message) }
+        _state.update { it?.copy(active = false, successful = success, message = message, isCleaningUp = false) }
     }
     private suspend fun removePartial(uri: Uri): Boolean = withContext(NonCancellable + Dispatchers.IO) {
         try { DocumentsContract.deleteDocument(resolver, uri) } catch (_: Exception) { false }
     }
 
-    private fun start(title: String, total: Long?, beforeOperationFailure: suspend () -> Unit = {}, operation: suspend () -> Unit): Boolean {
+    private suspend fun removeFailedDownload(destination: Uri): Boolean = withContext(NonCancellable) {
+        _state.update { it?.copy(isCleaningUp = true) }
+        val removed = removePartial(destination)
+        if (removed) localCleanup.forget(destination)
+        removed
+    }
+
+    private fun start(client: Flipper, title: String, total: Long?, beforeOperationFailure: suspend () -> Unit = {},
+        operation: suspend () -> Unit): Boolean {
         if (_state.value?.active == true) return false
-        _state.value = TransferUi(++sequence, title, total = total)
+        val transfer = TransferUi(++sequence, title, total = total)
+        _state.value = transfer
         ready = CompletableDeferred()
         try { TransferService.start(app, this) }
         catch (error: Exception) { finish("Could not start the background transfer: "+error.message); return false }
         job = scope.launch {
+            // Keep observing after cancellation so the dialog can span RPC recovery and local cleanup.
+            val recoveryWatch = scope.launch {
+                client.isRecovering.first { it }
+                _state.update { current ->
+                    if (current?.id == transfer.id && current.active) current.copy(isCleaningUp = true) else current
+                }
+            }
             var enteredOperation = false
             try {
                 withTimeout(8_000) { ready.await() }
@@ -76,6 +93,7 @@ internal class TransferManager private constructor(private val app: Application)
                 throw cancel
             } catch (error: Exception) { finish("Transfer failed: "+(error.message ?: error.toString())) }
             finally {
+                recoveryWatch.cancel()
                 try { if (!enteredOperation) withContext(NonCancellable) { beforeOperationFailure() } }
                 catch (error: Exception) { finish("Could not remove the created document: "+error.message) }
                 finally { activeDestination = null; TransferService.finish(this@TransferManager); job = null }
@@ -104,7 +122,7 @@ internal class TransferManager private constructor(private val app: Application)
     }
 
     fun upload(client: Flipper, target: String, source: SelectedUpload) {
-        start("Uploading $target", source.sizeBytes) {
+        start(client, "Uploading $target", source.sizeBytes) {
             try {
                 val result = withUri(source.uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) {
                     withContext(Dispatchers.IO) {
@@ -129,7 +147,7 @@ internal class TransferManager private constructor(private val app: Application)
     }
 
     fun download(client: Flipper, path: String, destination: Uri, expectedDevice: String?) {
-        val started = start("Downloading $path", null, beforeOperationFailure = {
+        val started = start(client, "Downloading $path", null, beforeOperationFailure = {
             // CreateDocument already created an empty destination even if FGS never became ready.
             if (!removePartial(destination)) localCleanup.remember(destination, 0)
         }) {
@@ -151,13 +169,11 @@ internal class TransferManager private constructor(private val app: Application)
                 withContext(NonCancellable) { localCleanup.forget(destination) }
                 finish("Saved with matching MD5: "+result.md5, true)
             } catch (cancel: CancellationException) {
-                val removed = removePartial(destination)
-                if (removed) withContext(NonCancellable) { localCleanup.forget(destination) }
+                val removed = removeFailedDownload(destination)
                 finish(if (removed) "Canceled. The partial document was removed." else "Canceled. Remove the partial document manually.")
                 throw cancel
             } catch (error: Exception) {
-                val removed = removePartial(destination)
-                if (removed) withContext(NonCancellable) { localCleanup.forget(destination) }
+                val removed = removeFailedDownload(destination)
                 finish("Transfer failed: "+error.message+if (removed) "\nThe partial document was removed." else "\nAutomatic cleanup failed. Check the partial document.")
             }
         }

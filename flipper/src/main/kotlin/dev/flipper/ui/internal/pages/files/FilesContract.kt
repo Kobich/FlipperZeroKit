@@ -5,7 +5,8 @@ import dev.flipper.api.model.StorageEntry
 
 internal data class SelectedUpload(val uri: Uri, val originalName: String, val sizeBytes: Long?)
 internal data class TransferUi(val id: Long, val title: String, val bytes: Long = 0, val total: Long? = null,
-    val active: Boolean = true, val message: String = "Preparing…", val successful: Boolean = false)
+    val active: Boolean = true, val message: String = "Preparing…", val successful: Boolean = false,
+    val isCleaningUp: Boolean = false)
 
 internal data class FilesUiState(
     val rpcReady: Boolean = false,

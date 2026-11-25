@@ -98,4 +98,6 @@
     <string name="flipper_device_info_unexpected_response">Unexpected device info response.</string>
     <string name="flipper_device_info_failed">Could not read device info.</string>
     <string name="flipper_copy_diagnostics">Copy diagnostics</string>
+    <string name="flipper_recovering_transfer">Restoring the connection and cleaning up…</string>
+    <string name="flipper_cleaning_up_transfer">Cleaning up the transfer…</string>
 </resources>
