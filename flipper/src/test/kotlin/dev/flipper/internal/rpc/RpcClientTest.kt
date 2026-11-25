@@ -162,6 +162,28 @@ class RpcClientTest {
     }
 
     @Test
+    fun pingDoesNotSucceedOnWriteAcknowledgementOrAStaleReply() = runBlocking<Unit> {
+        val staleCommand = failure(Reason.TIMEOUT) {
+            client.ping(100) { null }
+        }.commandId!!
+        val response = SystemProto.PingResponse.getDefaultInstance()
+
+        failure(Reason.TIMEOUT) {
+            client.ping(100) {
+                client.onMessage(FlipperProto.Main.newBuilder()
+                    .setCommandId(staleCommand).setSystemPingResponse(response).build())
+                null
+            }
+        }
+
+        client.ping(1_000) { request ->
+            client.onMessage(FlipperProto.Main.newBuilder()
+                .setCommandId(request.commandId).setSystemPingResponse(response).build())
+            null
+        }
+    }
+
+    @Test
     fun timeoutAlsoCoversABlockedSend() = runBlocking<Unit> {
         var cancelled = false
         failure(Reason.TIMEOUT) {

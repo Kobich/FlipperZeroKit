@@ -33,7 +33,7 @@ internal class BleSender(
     private val getGatt: () -> BluetoothGatt?,
     private val isBtConnected: StateFlow<BleConnectionState>,
     private val rpcSessionStatus: StateFlow<RpcStatus>,
-    private val onWriteFail: (BluetoothGatt) -> Unit
+    private val onWriteFail: (BluetoothGatt, String) -> Unit
 ) {
 
     private var currentAttMtu = DEFAULT_ATT_MTU
@@ -49,12 +49,10 @@ internal class BleSender(
      * @return `null` if all GATT writes completed successfully
      */
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
-    suspend fun sendRxMessage(message: ByteArray, expectedGatt: BluetoothGatt? = null): BleFailure? = withContext(Dispatchers.Main) {
+    suspend fun sendRxMessage(message: ByteArray, gatt: BluetoothGatt): BleFailure? = withContext(Dispatchers.Main) {
         if (message.isEmpty()) return@withContext BleFailure.RPCError
+        if (getGatt() !== gatt) return@withContext BleFailure.RPCSessionInactive
         val buffer = message.copyOf()
-
-        val gatt = awaitRpcActive() ?: return@withContext BleFailure.RPCError
-        if (expectedGatt != null && gatt !== expectedGatt) return@withContext BleFailure.RPCSessionInactive
 
         // The caller supplies a complete RPC frame.
 
@@ -82,7 +80,7 @@ internal class BleSender(
 
                     val result = writeRxChunk(gatt, chunk)
                     if (result != null) {
-                        if (offset > 0) onWriteFail(gatt)
+                        if (offset > 0) onWriteFail(gatt, "RX frame interrupted at $offset bytes: $result")
                         return@withLock result
                     }
 
@@ -90,7 +88,7 @@ internal class BleSender(
                 }
                 null
             } catch (e: CancellationException) {
-                if (offset > 0) onWriteFail(gatt)
+                if (offset > 0) onWriteFail(gatt, "RX frame cancelled at $offset bytes")
                 throw e
             }
         }
@@ -128,16 +126,6 @@ internal class BleSender(
 
         pending.completion.complete(WriteResult.Disconnected)
     }
-
-    fun onRpcInactive(gatt: BluetoothGatt) {
-        setAvailableBytes(0)
-
-        val pending = pendingRxWrite ?: return
-        if (pending.gatt != gatt) return
-
-        pending.completion.complete(WriteResult.SessionInactive)
-    }
-
 
     fun setAttMtu(value: Int) {
         currentAttMtu = value
@@ -187,15 +175,17 @@ internal class BleSender(
             return when(result) {
                 WriteResult.Success -> if (isConnectionValid(gatt)) null else BleFailure.RPCError
                 WriteResult.Disconnected -> BleFailure.RPCError
-                is WriteResult.Failure,
-                WriteResult.SessionInactive,
+                is WriteResult.Failure -> {
+                    onWriteFail(gatt, "RX write: GATT status=${result.status}")
+                    BleFailure.RPCError
+                }
                 null -> {
-                    onWriteFail.invoke(gatt)
+                    onWriteFail(gatt, "RX write callback timed out")
                     BleFailure.RPCError
                 }
             }
         } catch (e: CancellationException) {
-            if (writeStarted && !pending.completion.isCompleted) onWriteFail.invoke(gatt)
+            if (writeStarted && !pending.completion.isCompleted) onWriteFail(gatt, "RX write cancelled before callback")
             throw e
         } finally {
             pendingRxWrite = null
@@ -209,30 +199,9 @@ internal class BleSender(
     private sealed interface WriteResult {
         data object Success : WriteResult
         data object Disconnected : WriteResult
-        data object SessionInactive : WriteResult
         data class Failure(val status: Int) : WriteResult
     }
 
-
-    /**
-     * Waiting for activation of RPC-session
-     */
-    private suspend fun awaitRpcActive(): BluetoothGatt? {
-        val result =
-            withTimeoutOrNull(RPC_INIT_TIMEOUT_MS.milliseconds) {
-                // to avoid case when connection is interrupted during timer work
-                combine(isBtConnected, rpcSessionStatus) { connection, status ->
-                    val connected = connection is BleConnectionState.Connected
-                    val active = status == RpcStatus.ACTIVE
-                    connected to active
-                }.first { (connected, active) -> !connected || active }
-            } ?: return null
-
-        val (connected, active) = result
-        if (!connected || !active) return null
-
-        return getGatt()
-    }
 
     /**
      * Waiting for available bytes to have opportunity to send/continue to send RX command
@@ -259,7 +228,6 @@ internal class BleSender(
     companion object {
         private const val TAG = "RpcSender"
 
-        private const val RPC_INIT_TIMEOUT_MS = 5_000L
         private const val WRITE_TIMEOUT_MS = 10_000L
         private const val FLOW_CONTROL_TIMEOUT_MS = 30_000L
     }

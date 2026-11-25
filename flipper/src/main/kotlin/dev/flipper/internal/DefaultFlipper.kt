@@ -125,12 +125,27 @@ internal class DefaultFlipper(
     // ---------- Connection state ---------- //
 
     private var connectTimeout: Job? = null
+    private var mtuDiscoveryJob: Job? = null
+    // Accessed on Main, including when the screen copies diagnostics.
+    private val connectionEvents = ArrayDeque<String>()
+
+    fun recentConnectionEvents(): List<String> = connectionEvents.toList()
+
+    private fun recordConnectionEvent(event: String) {
+        if (connectionEvents.size == 24) connectionEvents.removeFirst()
+        connectionEvents.addLast(event)
+        Log.d(TAG, event)
+    }
 
     private val _connection = MutableStateFlow<BleConnectionState>(BleConnectionState.Disconnected)
     override val connection = _connection.asStateFlow()
 
     private val _rpcStatus = MutableStateFlow(RpcStatus.NOT_ACTIVE)
     override val rpcStatus = _rpcStatus.asStateFlow()
+    private val transportRpcStatus = MutableStateFlow(RpcStatus.NOT_ACTIVE)
+    private var reportedRpcStatus: RpcStatus? = null
+    private var initialFlowControlRead = false
+    private var rpcProbeJob: Job? = null
 
     // ---------- Data exchanging ---------- //
 
@@ -142,8 +157,8 @@ internal class DefaultFlipper(
     private val flipperSender = BleSender(
         getGatt = { currentGatt },
         isBtConnected = connection,
-        rpcSessionStatus = rpcStatus,
-        onWriteFail = { gatt -> failGatt(gatt, BleFailure.RPCError) }
+        rpcSessionStatus = transportRpcStatus,
+        onWriteFail = { gatt, detail -> failGatt(gatt, BleFailure.RPCError, detail) }
     )
 
 
@@ -198,6 +213,7 @@ internal class DefaultFlipper(
             bleScanner.stop()
             blePairingManager.clearBondWaiting()
             closeCurrentGatt()
+            recordConnectionEvent("Connect to ${device.name}")
 
             if (!permissionChecker.checkBluetoothReady(scan = false, onFail = ::fail)) {
                 return@withContext
@@ -232,11 +248,6 @@ internal class DefaultFlipper(
             connectTimeout = null
             scope.launch { try { cleanupPendingFiles() } catch (error: Exception) { Log.w(TAG, "Deferred cleanup pending", error) } }
         }
-        if (value != RpcStatus.ACTIVE) {
-            rpcClient.onSessionClosed()
-            currentGatt?.let(flipperSender::onRpcInactive)
-            flipperSender.setAvailableBytes(0)
-        }
     }
 
 
@@ -256,14 +267,15 @@ internal class DefaultFlipper(
     // ---------- GATT connection ---------- //
 
     @SuppressLint("MissingPermission")
-    private fun startGattConnection(remote: BluetoothDevice, device: BleDevice) {
+    private fun startGattConnection(remote: BluetoothDevice, device: BleDevice, autoConnect: Boolean) {
         if (!permissionChecker.checkBluetoothReady(scan = false, onFail = ::fail)) return
 
         saveConnectionState(BleConnectionState.Connecting(device))
 
         try {
             val callback = createGattCallback(device)
-            val gatt = remote.connectGattCompat(context, callback, mainHandler)
+            recordConnectionEvent("Open GATT (autoConnect=$autoConnect)")
+            val gatt = remote.connectGattCompat(context, callback, mainHandler, autoConnect)
 
             if (gatt == null) {
                 fail(BleFailure.ConnectionFailed(-1))
@@ -276,9 +288,10 @@ internal class DefaultFlipper(
             startRpcReceiving(gatt)
 
             connectTimeout = scope.launch {
-                delay(CONNECTION_TIMEOUT_MS.milliseconds)
+                val timeout = if (autoConnect) BONDED_CONNECTION_TIMEOUT_MS else CONNECTION_TIMEOUT_MS
+                delay(timeout.milliseconds)
                 if (isCurrentGatt(gatt) && _connection.value is BleConnectionState.Connecting) {
-                    failGatt(gatt, BleFailure.TimedOut)
+                    failGatt(gatt, BleFailure.TimedOut, "GATT setup timed out after $timeout ms")
                 }
             }
 
@@ -298,12 +311,13 @@ internal class DefaultFlipper(
 
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) = dispatchGattCallback {
             if (!isCurrentGatt(gatt)) return@dispatchGattCallback
+            recordConnectionEvent("GATT link callback: status=$status, state=$newState")
 
             when {
                 status != BluetoothGatt.GATT_SUCCESS ->
                     failGatt(gatt, BleFailure.ConnectionFailed(status))
 
-                newState == BluetoothProfile.STATE_CONNECTED -> discoverServices(gatt)
+                newState == BluetoothProfile.STATE_CONNECTED -> requestMtuBeforeDiscovery(gatt)
                 newState == BluetoothProfile.STATE_DISCONNECTED -> {
                     closeCurrentGatt()
                     saveConnectionState(BleConnectionState.Disconnected)
@@ -333,13 +347,13 @@ internal class DefaultFlipper(
 
         override fun onDescriptorWrite(gatt: BluetoothGatt,descriptor: BluetoothGattDescriptor, status: Int) = dispatchGattCallback {
             if (!isCurrentGatt(gatt)) return@dispatchGattCallback
+            if (descriptor.uuid != FlipperGattUuid.BtSigConst.CCCD) return@dispatchGattCallback
 
             if (status != BluetoothGatt.GATT_SUCCESS) {
-                failGatt(gatt, BleFailure.EnableCCCDProblem)
+                failGatt(gatt, BleFailure.EnableCCCDProblem,
+                    "CCCD write for ${descriptor.characteristic.uuid}: GATT status=$status")
                 return@dispatchGattCallback
             }
-
-            if (descriptor.uuid != FlipperGattUuid.BtSigConst.CCCD) return@dispatchGattCallback
 
             when (descriptor.characteristic.uuid) {
                 FlipperGattUuid.Characteristic.TX.uuid,
@@ -376,10 +390,14 @@ internal class DefaultFlipper(
 
         override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) = dispatchGattCallback {
             if (!isCurrentGatt(gatt)) return@dispatchGattCallback
-
+            recordConnectionEvent("MTU callback: status=$status, mtu=$mtu")
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 flipperSender.setAttMtu(mtu)
-                Log.d(TAG, "ATT MTU changed, new value: $mtu")
+            }
+            mtuDiscoveryJob?.let {
+                it.cancel()
+                mtuDiscoveryJob = null
+                discoverServices(gatt)
             }
         }
     }
@@ -393,7 +411,29 @@ internal class DefaultFlipper(
     // ---------- GATT initialization ---------- //
 
     @SuppressLint("MissingPermission")
+    private fun requestMtuBeforeDiscovery(gatt: BluetoothGatt) {
+        try {
+            if (!gatt.requestMtu(REQUESTED_ATT_MTU)) {
+                recordConnectionEvent("MTU request rejected, continuing with current MTU")
+                discoverServices(gatt)
+                return
+            }
+            mtuDiscoveryJob = scope.launch {
+                delay(MTU_CALLBACK_TIMEOUT_MS)
+                mtuDiscoveryJob = null
+                if (isCurrentGatt(gatt)) {
+                    recordConnectionEvent("No MTU callback, continuing with current MTU")
+                    discoverServices(gatt)
+                }
+            }
+        } catch (_: SecurityException) {
+            failGatt(gatt, BleFailure.PermissionMissing)
+        }
+    }
+
+    @SuppressLint("MissingPermission")
     private fun discoverServices(gatt: BluetoothGatt) {
+        recordConnectionEvent("Discover GATT services")
         try {
             if (!gatt.discoverServices()) {
                 failGatt(gatt, BleFailure.ServiceDiscoveryFailed(-1))
@@ -416,14 +456,21 @@ internal class DefaultFlipper(
 
     private fun handleCharacteristicRead(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, value: ByteArray, status: Int) {
         if (!isCurrentGatt(gatt)) return
+        val name = when (characteristic.uuid) {
+            FlipperGattUuid.Characteristic.RPC_STATUS.uuid -> "RPC_STATUS"
+            FlipperGattUuid.Characteristic.FLOW_CONTROL.uuid -> "FLOW_CONTROL"
+            else -> return
+        }
         if (status != BluetoothGatt.GATT_SUCCESS) {
-            failGatt(gatt, BleFailure.RPCError)
+            failGatt(gatt, BleFailure.RPCReadError("$name: GATT status=$status"))
             return
         }
 
         when (characteristic.uuid) {
-            FlipperGattUuid.Characteristic.RPC_STATUS.uuid -> RpcStatus.fromBytes(value)?.let {
-                saveRpcState(it)
+            FlipperGattUuid.Characteristic.RPC_STATUS.uuid -> {
+                // A notification already received during setup takes precedence over the initial read.
+                if (reportedRpcStatus == null) reportedRpcStatus = RpcStatus.fromBytes(value)
+                recordConnectionEvent("Read RPC_STATUS: $reportedRpcStatus")
                 try {
                     if (!gattManager.readFlowControl(gatt)) {
                         failGatt(gatt, BleFailure.RPCReadError("FlowControl"))
@@ -431,8 +478,13 @@ internal class DefaultFlipper(
                 } catch (_: SecurityException) {
                     failGatt(gatt, BleFailure.PermissionMissing)
                 }
-            } ?: Log.e(TAG, "Cannot get RPC status from ${value.contentToString()}")
-            FlipperGattUuid.Characteristic.FLOW_CONTROL.uuid -> handleFlowControlValue(value)
+            }
+            FlipperGattUuid.Characteristic.FLOW_CONTROL.uuid -> {
+                handleFlowControlValue(value)
+                recordConnectionEvent("Read FLOW_CONTROL: ${value.toInt(ByteOrder.BIG_ENDIAN)} bytes")
+                initialFlowControlRead = true
+                verifyRpcSession(gatt)
+            }
         }
     }
 
@@ -441,19 +493,50 @@ internal class DefaultFlipper(
 
         when (characteristic.uuid) {
             FlipperGattUuid.Characteristic.TX.uuid -> handleIncoming(gatt, value)
-            FlipperGattUuid.Characteristic.RPC_STATUS.uuid ->
-                RpcStatus.fromBytes(value)?.let(::saveRpcState)
-                    ?: Log.e(TAG, "Cannot get RPC status from ${value.contentToString()}")
+            FlipperGattUuid.Characteristic.RPC_STATUS.uuid -> {
+                val status = RpcStatus.fromBytes(value) ?: return
+                recordConnectionEvent("RPC_STATUS notification: $status")
+                reportedRpcStatus = status
+                if (status != RpcStatus.ACTIVE && transportRpcStatus.value == RpcStatus.ACTIVE) {
+                    failGatt(gatt, BleFailure.RPCSessionInactive)
+                } else {
+                    verifyRpcSession(gatt)
+                }
+            }
             FlipperGattUuid.Characteristic.FLOW_CONTROL.uuid -> handleFlowControlValue(value)
         }
     }
 
+    private fun verifyRpcSession(gatt: BluetoothGatt) {
+        if (!initialFlowControlRead || reportedRpcStatus != RpcStatus.ACTIVE || rpcProbeJob != null) return
+
+        // Only the probe can send before public RPC readiness is confirmed.
+        transportRpcStatus.value = RpcStatus.ACTIVE
+        rpcProbeJob = scope.launch {
+            recordConnectionEvent("RPC readiness Ping sent to transport")
+            try {
+                rpcClient.ping(RPC_PROBE_TIMEOUT_MS) { sendRpcMessage(it, gatt) }
+                if (isCurrentGatt(gatt)) {
+                    recordConnectionEvent("RPC readiness PingResponse received")
+                    saveRpcState(RpcStatus.ACTIVE)
+                }
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (error: FlipperRpcException) {
+                Log.w(TAG, "RPC readiness probe failed", error)
+                failGatt(gatt, BleFailure.RPCSessionInactive, "Readiness Ping: ${error.reason}, ${error.message}")
+            }
+        }
+    }
+
     private fun onEnableAllCCCD(gatt: BluetoothGatt, device: BleDevice) {
-        Log.d(TAG, "All CCCD subscriptions enabled")
+        recordConnectionEvent("GATT subscriptions complete")
+        reportedRpcStatus = null
         connectTimeout?.cancel()
         connectTimeout = scope.launch {
             delay(15_000)
-            if (isCurrentGatt(gatt) && _rpcStatus.value != RpcStatus.ACTIVE) failGatt(gatt, BleFailure.TimedOut)
+            if (isCurrentGatt(gatt)) failGatt(gatt, BleFailure.RPCSessionInactive,
+                "RPC readiness timed out (RPC_STATUS=$reportedRpcStatus, flow control read=$initialFlowControlRead)")
         }
         saveConnectionState(BleConnectionState.Connected(device))
 
@@ -478,7 +561,7 @@ internal class DefaultFlipper(
     private fun handleIncoming(gatt: BluetoothGatt, value: ByteArray) {
         // forward TX bytes to incoming Flow/Channel.
         val accepted = flipperReceiver.onReceive(value)
-        if (!accepted) failGatt(gatt, BleFailure.RPCError)
+        if (!accepted) failGatt(gatt, BleFailure.RPCError, "TX receiver rejected a fragment")
 
 
 
@@ -486,10 +569,19 @@ internal class DefaultFlipper(
 
     override fun nextCommandId(): Int = commandIds.getAndIncrement()
 
-    override suspend fun sendMessage(message: FlipperProto.Main): BleFailure? =
-        sendRpcMessage(message)
+    override suspend fun sendMessage(message: FlipperProto.Main): BleFailure? = withContext(Dispatchers.Main.immediate) {
+        if (!permissionChecker.hasConnectPermission()) return@withContext BleFailure.PermissionMissing
+        val gatt = currentGatt ?: return@withContext BleFailure.RPCError
+        val ready = withTimeoutOrNull(RAW_RPC_READY_TIMEOUT_MS) {
+            combine(connection, rpcStatus) { state, rpc -> state to rpc }.first { (state, rpc) ->
+                !isCurrentGatt(gatt) || state !is BleConnectionState.Connected || rpc == RpcStatus.ACTIVE
+            }.let { (state, rpc) -> state is BleConnectionState.Connected && rpc == RpcStatus.ACTIVE }
+        }
+        if (ready != true || !isCurrentGatt(gatt)) return@withContext BleFailure.RPCError
+        sendRpcMessage(message, gatt)
+    }
 
-    private suspend fun sendRpcMessage(message: FlipperProto.Main, expectedGatt: BluetoothGatt? = null): BleFailure? {
+    private suspend fun sendRpcMessage(message: FlipperProto.Main, expectedGatt: BluetoothGatt): BleFailure? {
         if (!permissionChecker.hasConnectPermission()) return BleFailure.PermissionMissing
         val frame = withContext(Dispatchers.Default) { rpcFramer.encode(message) }
         return try {
@@ -667,7 +759,7 @@ internal class DefaultFlipper(
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "RPC decoding failed", e)
-                failGatt(gatt, BleFailure.RPCError)
+                failGatt(gatt, BleFailure.RPCError, "RPC frame decode: ${e.javaClass.simpleName}")
             }
         }
     }
@@ -680,9 +772,16 @@ internal class DefaultFlipper(
     private fun closeCurrentGatt() {
         connectTimeout?.cancel()
         connectTimeout = null
+        mtuDiscoveryJob?.cancel()
+        mtuDiscoveryJob = null
 
         val gatt = currentGatt
         currentGatt = null
+        rpcProbeJob?.cancel()
+        rpcProbeJob = null
+        reportedRpcStatus = null
+        initialFlowControlRead = false
+        transportRpcStatus.value = RpcStatus.NOT_ACTIVE
         rpcClient.onSessionClosed()
 
         rpcReceiveJob?.cancel()
@@ -711,15 +810,15 @@ internal class DefaultFlipper(
         }
     }
 
-    private fun failGatt(gatt: BluetoothGatt, reason: BleFailure) {
+    private fun failGatt(gatt: BluetoothGatt, reason: BleFailure, detail: String = reason.toString()) {
         if (!isCurrentGatt(gatt)) return
-        Log.w(TAG, "GATT failure: $reason")
+        recordConnectionEvent("Close GATT: $detail")
         closeCurrentGatt()
         saveConnectionState(BleConnectionState.Failed(reason))
     }
 
     private fun fail(reason: BleFailure) {
-        Log.w(TAG, "BLE failure: $reason")
+        recordConnectionEvent("BLE failure: $reason")
         blePairingManager.clearBondWaiting()
         closeCurrentGatt()
         saveConnectionState(BleConnectionState.Failed(reason))
@@ -728,6 +827,11 @@ internal class DefaultFlipper(
     companion object {
         private const val TAG = "Flipper"
         private const val CONNECTION_TIMEOUT_MS = 25_000L
+        private const val BONDED_CONNECTION_TIMEOUT_MS = 30_000L
+        private const val REQUESTED_ATT_MTU = 512
+        private const val MTU_CALLBACK_TIMEOUT_MS = 3_000L
+        private const val RPC_PROBE_TIMEOUT_MS = 10_000L
+        private const val RAW_RPC_READY_TIMEOUT_MS = 5_000L
         const val DEFAULT_ATT_MTU = 23
         const val ATT_WRITE_OVERHEAD = 3
 

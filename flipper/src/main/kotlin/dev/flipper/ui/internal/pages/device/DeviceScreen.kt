@@ -55,10 +55,14 @@ import dev.flipper.api.FlipperPermissions
 private enum class EntryAction { KNOWN_DEVICES, SCAN }
 
 @Composable
-internal fun DeviceRoute(viewModel: DeviceViewModel, embedded: Boolean = false) {
+internal fun DeviceRoute(viewModel: DeviceViewModel, embedded: Boolean = false, connectingDevice: BleDevice? = null) {
 
     val uiState by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val version = remember(context) {
+        @Suppress("DEPRECATION")
+        context.packageManager.getPackageInfo(context.packageName, 0).versionName.orEmpty()
+    }
 
     var pendingAction by rememberSaveable { mutableStateOf(EntryAction.KNOWN_DEVICES) }
     var permissionDenied by rememberSaveable { mutableStateOf(false) }
@@ -103,6 +107,7 @@ internal fun DeviceRoute(viewModel: DeviceViewModel, embedded: Boolean = false) 
     DeviceScreen(
         state = uiState,
         embedded = embedded,
+        connectingDevice = connectingDevice,
         permissionDenied = permissionDenied,
         enableDenied = enableDenied,
         onScan = { requestAction(EntryAction.SCAN) },
@@ -114,9 +119,8 @@ internal fun DeviceRoute(viewModel: DeviceViewModel, embedded: Boolean = false) 
         sendPing = { viewModel.onIntent(DeviceIntent.Ping) },
         onCopyDiagnostics = {
             val report = buildString {
-                appendLine("FlipperZeroKit prototype / Android " + android.os.Build.VERSION.RELEASE)
-                appendLine("Connection: "+uiState.connection)
-                appendLine("RPC: "+uiState.rpcStatus)
+                appendLine("FlipperZeroKit $version / Android ${android.os.Build.VERSION.RELEASE}")
+                viewModel.connectionDiagnostics().forEach { appendLine(it) }
                 appendLine("Known devices: "+uiState.knownDevices)
                 appendLine(uiState.diagnostics.pingMessage)
                 when (val info = uiState.info) {
@@ -135,6 +139,7 @@ internal fun DeviceRoute(viewModel: DeviceViewModel, embedded: Boolean = false) 
 private fun DeviceScreen(
     state: DeviceUiState,
     embedded: Boolean,
+    connectingDevice: BleDevice?,
     permissionDenied: Boolean,
     enableDenied: Boolean,
     onScan: () -> Unit,
@@ -152,16 +157,16 @@ private fun DeviceScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text(stringResource(R.string.flipper_connection_title), style = MaterialTheme.typography.headlineMedium)
-        Text("Пробная версия · RPC: "+state.rpcStatus)
         TextButton(onClick = onCopyDiagnostics) { Text("Скопировать диагностику") }
-        Text(
-            stringResource(R.string.flipper_connection_intro),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        when (val connection = state.connection) {
-            is BleConnectionState.Connected -> {
+        val connection = state.connection
+        val pendingDevice = when (connection) {
+            is BleConnectionState.Pairing -> connection.device
+            is BleConnectionState.Connecting -> connection.device
+            is BleConnectionState.Connected -> connection.device.takeUnless { state.isRpcReady }
+            else -> connectingDevice
+        }
+        when {
+            connection is BleConnectionState.Connected && state.isRpcReady -> {
                 Text(
                     stringResource(R.string.flipper_connected_status),
                     color = MaterialTheme.colorScheme.primary,
@@ -172,7 +177,7 @@ private fun DeviceScreen(
                     InfoRow(stringResource(R.string.flipper_device_name_label), connection.device.name)
                     InfoRow(stringResource(R.string.flipper_device_address_label), connection.device.address)
                     when (val info = state.info) {
-                        DeviceInfoState.None -> Text(stringResource(R.string.flipper_rpc_waiting))
+                        DeviceInfoState.None -> Text(stringResource(R.string.flipper_loading_info))
                         DeviceInfoState.Loading -> {
                             CircularProgressIndicator()
                             Text(stringResource(R.string.flipper_loading_info))
@@ -210,23 +215,27 @@ private fun DeviceScreen(
 
                 FlipperOutlinedButton(stringResource(R.string.flipper_disconnect_device), onDisconnect)
             }
-            is BleConnectionState.Pairing -> {
+            pendingDevice != null -> {
                 CircularProgressIndicator()
-                Text(stringResource(R.string.flipper_device_pairing, connection.device.name))
+                Text(when (connection) {
+                    is BleConnectionState.Pairing -> stringResource(R.string.flipper_device_pairing, pendingDevice.name)
+                    is BleConnectionState.Connected -> stringResource(R.string.flipper_rpc_waiting)
+                    else -> stringResource(R.string.flipper_device_connecting, pendingDevice.name)
+                })
                 FlipperOutlinedButton(stringResource(R.string.flipper_disconnect_device), onDisconnect)
             }
-            is BleConnectionState.Connecting -> {
-                CircularProgressIndicator()
-                Text(stringResource(R.string.flipper_device_connecting, connection.device.name))
-                FlipperOutlinedButton(stringResource(R.string.flipper_disconnect_device), onDisconnect)
-            }
-            BleConnectionState.Disconnected, is BleConnectionState.Failed -> {
+            else -> {
                 if (connection is BleConnectionState.Failed) {
                     Text(
                         failureText(connection.failure),
                         color = MaterialTheme.colorScheme.error,
                     )
                 }
+                Text(
+                    stringResource(R.string.flipper_connection_intro),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 if (permissionDenied) {
                     Text(stringResource(R.string.flipper_permission_denied), color = MaterialTheme.colorScheme.error)
                 }
@@ -305,8 +314,8 @@ private fun failureText(failure: BleFailure): String = when (failure) {
     is BleFailure.ServiceDiscoveryFailed -> stringResource(R.string.flipper_bluetooth_services_failed, failure.code)
     is BleFailure.Unknown -> stringResource(R.string.flipper_bluetooth_unknown_error)
     BleFailure.InvalidGattProfile -> stringResource(R.string.flipper_bluetooth_services_validation_failed)
+    BleFailure.RPCSessionInactive -> stringResource(R.string.flipper_rpc_unavailable)
     BleFailure.RPCError,
-    BleFailure.RPCSessionInactive,
     BleFailure.EnableCCCDProblem,
     is BleFailure.RPCReadError -> stringResource(R.string.flipper_rpc_error)
 }

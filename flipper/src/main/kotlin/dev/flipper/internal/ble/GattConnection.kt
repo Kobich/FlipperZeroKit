@@ -15,16 +15,17 @@ internal fun BluetoothDevice.connectGattCompat(
     context: Context,
     callback: BluetoothGattCallback,
     handler: Handler,
+    autoConnect: Boolean,
 ): BluetoothGatt? = if (Build.VERSION.SDK_INT >= 37) {
     val settings = BluetoothGattConnectionSettings.Builder()
         .setTransport(BluetoothDevice.TRANSPORT_LE)
-        .setAutoConnectEnabled(false)
-        // Preserve the existing explicit MTU policy; don't add an initialization GATT operation.
+        .setAutoConnectEnabled(autoConnect)
+        // Request MTU explicitly before discovering services to keep initialization ordered.
         .setAutomaticMtuEnabled(false)
         .build()
     connectGatt(settings, context.mainExecutor, callback)
 } else {
-    connectGattLegacy(context, callback, handler)
+    connectGattLegacy(context, callback, handler, autoConnect)
 }
 
 // Android 6–16 has no settings/executor overload. Keep deprecation suppression at this boundary.
@@ -34,8 +35,9 @@ private fun BluetoothDevice.connectGattLegacy(
     context: Context,
     callback: BluetoothGattCallback,
     handler: Handler,
+    autoConnect: Boolean,
 ): BluetoothGatt? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-    connectGatt(context, false, callback, BluetoothDevice.TRANSPORT_LE, BluetoothDevice.PHY_LE_1M_MASK, handler)
+    connectGatt(context, autoConnect, callback, BluetoothDevice.TRANSPORT_LE, BluetoothDevice.PHY_LE_1M_MASK, handler)
 } else {
-    connectGatt(context, false, callback, BluetoothDevice.TRANSPORT_LE)
+    connectGatt(context, autoConnect, callback, BluetoothDevice.TRANSPORT_LE)
 }

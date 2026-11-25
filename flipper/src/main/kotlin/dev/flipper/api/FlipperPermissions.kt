@@ -6,7 +6,7 @@ import dev.flipper.internal.permissions.BluetoothPermissionChecker
 
 /** Permissions to request in the host before scanning. Each access returns a new array. */
 object FlipperPermissions {
-    /** Runtime permissions for known-device lookup and direct connection, without discovery.
+    /** Runtime permissions for known-device lookup and connection without discovery.
      * On API 23–30 BLUETOOTH is a normal manifest permission; no runtime location is needed here.
      */
     val connectPermissions: Array<String>

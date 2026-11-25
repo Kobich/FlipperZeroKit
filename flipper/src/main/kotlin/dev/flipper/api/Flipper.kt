@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 
 interface Flipper {
+    /** ACTIVE indicates that the current GATT session returned a valid PingResponse. */
     val rpcStatus: StateFlow<RpcStatus>
     val connection: StateFlow<BleConnectionState>
     val discoveredDevices: StateFlow<List<BleDevice>>

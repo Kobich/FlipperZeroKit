@@ -12,6 +12,7 @@ import dev.flipper.api.model.BleFailure
 import dev.flipper.api.model.BleConnectionState
 import dev.flipper.api.model.FlipperRpcException
 import dev.flipper.api.model.RpcStatus
+import dev.flipper.internal.DefaultFlipper
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -39,7 +40,7 @@ internal class DeviceViewModel constructor(
     ) { connection, devices, scanning, deviceInfo, rpcStatus ->
         DeviceUiState(connection, devices, scanning, deviceInfo, rpcStatus)
     }.combine(diagnostics) { state, details -> state.copy(diagnostics = details) }.combine(knownDevices) { state, known -> state.copy(knownDevices = known) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DeviceUiState())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, DeviceUiState())
 
     init {
         viewModelScope.launch {
@@ -69,6 +70,12 @@ internal class DeviceViewModel constructor(
                 DeviceIntent.Ping -> if (isRpcReady()) sendPing()
             }
         }
+    }
+
+    fun connectionDiagnostics(): List<String> = buildList {
+        add("Connection: ${flipper.connection.value}")
+        add("RPC: ${flipper.rpcStatus.value}")
+        addAll((flipper as? DefaultFlipper)?.recentConnectionEvents().orEmpty())
     }
 
     private fun refreshKnownDevices() {

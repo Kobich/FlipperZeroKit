@@ -25,7 +25,7 @@ internal class FilesViewModel(private val flipper: Flipper, application: Applica
     private val transfers = TransferManager.get(flipper, application)
     private val local = MutableStateFlow(FilesUiState())
     val state = combine(local, transfers.state, transfers.localCleanupStatus) { screen, operation, cleanup -> screen.copy(transfer = operation, cleanupStatus = cleanup) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), FilesUiState())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, FilesUiState())
     private var listing: Job? = null
     private var picking: Job? = null
 

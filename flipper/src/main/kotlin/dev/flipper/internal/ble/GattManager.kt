@@ -36,7 +36,7 @@ internal class GattManager {
         val characteristic = notifySubscriptionQueue.removeFirstOrNull() ?: return BleFailure.Unknown("No characteristics in queue to make subscriptions")
         Log.v(TAG, "BleSubscriptionManager -> processNextSubscription process char ${characteristic.uuid.getCharacteristicByUuid()}")
 
-        gatt.setCharacteristicNotification(characteristic, true)
+        if (!gatt.setCharacteristicNotification(characteristic, true)) return BleFailure.EnableCCCDProblem
         val descriptor = characteristic.getDescriptor(FlipperGattUuid.BtSigConst.CCCD) ?: run {
             // if we don't have the descriptor - return
             return BleFailure.Unknown("No description CCCD for characteristics ${characteristic.uuid.getCharacteristicByUuid()}")

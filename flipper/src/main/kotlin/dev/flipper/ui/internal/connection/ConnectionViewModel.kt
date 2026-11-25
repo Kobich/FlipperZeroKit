@@ -12,6 +12,7 @@ import dev.flipper.api.FlipperPermissions
 import dev.flipper.api.model.BleConnectionState
 import dev.flipper.api.model.BleDevice
 import dev.flipper.api.model.BleFailure
+import dev.flipper.api.model.KnownDevicesResult
 import dev.flipper.api.model.RpcStatus
 import dev.flipper.ui.FlipperConnectionController
 import kotlinx.coroutines.CancellationException
@@ -33,36 +34,51 @@ internal class ConnectionViewModel(private val flipper: Flipper, application: Ap
     private var exhaustedAt = Long.MIN_VALUE
     private val _status = MutableStateFlow("")
     override val status = _status.asStateFlow()
+    private val _connectingDevice = MutableStateFlow<BleDevice?>(null)
+    val connectingDevice = _connectingDevice.asStateFlow()
 
     init {
         viewModelScope.launch {
             combine(flipper.connection, flipper.rpcStatus, flipper.isRecovering, flipper.isScanning) { connection, rpc, recovery, scan ->
                 Snapshot(connection, rpc, recovery, scan)
             }.collect { snapshot ->
-                if (snapshot.connection is BleConnectionState.Connected) prefs.edit {
-                    putString("address", snapshot.connection.device.address); putString("name", snapshot.connection.device.name)
-                }
                 if (snapshot.connection is BleConnectionState.Connected && snapshot.rpc == RpcStatus.ACTIVE) {
+                    if (remembered() == null) remember(snapshot.connection.device)
                     exhaustedAt = Long.MIN_VALUE
-                    _status.value = "Подключено"
+                    _status.value = ""
                 } else if (snapshot.recovery) {
-                    retryJob?.cancel(); retryJob = null
-                    _status.value = "Восстановление после файловой операции…"
-                } else if (foreground && automatic && !snapshot.scan &&
-                    (snapshot.connection is BleConnectionState.Disconnected || snapshot.connection is BleConnectionState.Failed)) schedule()
+                    cancelRetry()
+                } else if (foreground && automatic && !snapshot.scan && snapshot.connection.canReconnect()) schedule()
             }
         }
     }
     private data class Snapshot(val connection: BleConnectionState, val rpc: RpcStatus, val recovery: Boolean, val scan: Boolean)
+    private fun BleConnectionState.canReconnect() = this is BleConnectionState.Disconnected || this is BleConnectionState.Failed
     private fun allowed() = FlipperPermissions.connectPermissions.all {
         ContextCompat.checkSelfPermission(getApplication<Application>(), it) == PackageManager.PERMISSION_GRANTED
     }
     private fun remembered(): BleDevice? = prefs.getString("address", null)?.let { BleDevice(prefs.getString("name", null) ?: "Flipper", it) }
+    private fun remember(device: BleDevice) = prefs.edit {
+        putString("address", device.address)
+        putString("name", device.name)
+    }
+
     private fun schedule(device: BleDevice? = remembered(), explicit: Boolean = false) {
         if (device == null || retryJob?.isActive == true || !allowed() || flipper.isRecovering.value) return
         val now = android.os.SystemClock.elapsedRealtime()
         if (!explicit && exhaustedAt != Long.MIN_VALUE && now - exhaustedAt < 60_000) return
+        _connectingDevice.value = device
         retryJob = viewModelScope.launch {
+            if (!explicit) {
+                val known = flipper.getKnownDevices()
+                if (known is KnownDevicesResult.Available && known.devices.none {
+                        it.isBonded && it.device.address.equals(device.address, ignoreCase = true)
+                    }) {
+                    _status.value = "Сопряжение с ${device.name} отсутствует. Выберите устройство."
+                    _connectingDevice.value = null
+                    return@launch
+                }
+            }
             val pauses = longArrayOf(0, 2_000, 6_000)
             for (attempt in pauses.indices) {
                 if ((!foreground && !explicit) || !automatic || !allowed()) break
@@ -73,36 +89,48 @@ internal class ConnectionViewModel(private val flipper: Flipper, application: Ap
                 catch (error: Exception) { _status.value = "Подключение недоступно: "+error.message; break }
                 val result = withTimeoutOrNull(95_000) {
                     combine(flipper.connection, flipper.rpcStatus) { state, rpc -> state to rpc }.first { (state, rpc) ->
-                        state is BleConnectionState.Failed || (state is BleConnectionState.Connected && rpc == RpcStatus.ACTIVE)
+                        state.canReconnect() || (state is BleConnectionState.Connected && rpc == RpcStatus.ACTIVE)
                     }
                 }
-                if (result?.first is BleConnectionState.Connected) return@launch
+                if (result?.first is BleConnectionState.Connected) {
+                    _connectingDevice.value = null
+                    _status.value = ""
+                    return@launch
+                }
                 val failure = (result?.first as? BleConnectionState.Failed)?.failure
                 if (failure == BleFailure.PermissionMissing || failure == BleFailure.BluetoothDisabled ||
                     failure == BleFailure.BluetoothUnsupported || failure == BleFailure.PairingFailed) break
             }
             exhaustedAt = android.os.SystemClock.elapsedRealtime()
             _status.value = "Не удалось подключиться. Выберите устройство для ручного повтора."
+            _connectingDevice.value = null
         }
     }
     override fun onEnter() {
         if (foreground) return
         foreground = true
-        if (automatic && flipper.connection.value !is BleConnectionState.Connected && !flipper.isScanning.value) schedule()
+        if (automatic && flipper.connection.value.canReconnect() && !flipper.isScanning.value) schedule()
     }
     override fun onLeave(changingConfigurations: Boolean) {
-        if (!changingConfigurations) { foreground = false; retryJob?.cancel(); retryJob = null }
+        if (!changingConfigurations) { foreground = false; cancelRetry() }
     }
     override suspend fun connect(device: BleDevice) {
-        retryJob?.cancel(); retryJob = null
+        cancelRetry()
+        remember(device)
         automatic = true; prefs.edit { putBoolean("automatic", true) }
         exhaustedAt = Long.MIN_VALUE
         schedule(device, explicit = true)
     }
     override fun onDiscoveryStarted() { stopAutomatic() }
+    private fun cancelRetry() {
+        if (retryJob?.isActive == true) _status.value = ""
+        retryJob?.cancel()
+        retryJob = null
+        _connectingDevice.value = null
+    }
     private fun stopAutomatic() {
         automatic = false; prefs.edit { putBoolean("automatic", false) }
-        retryJob?.cancel(); retryJob = null
+        cancelRetry()
         _status.value = "Автоподключение остановлено пользователем"
     }
     override suspend fun disconnect() { stopAutomatic(); flipper.disconnect() }

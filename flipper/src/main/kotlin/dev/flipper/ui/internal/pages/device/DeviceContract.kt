@@ -38,7 +38,7 @@ internal data class DeviceUiState(
     val isRpcReady: Boolean get() = connection is BleConnectionState.Connected && rpcStatus == RpcStatus.ACTIVE
 }
 
-internal data class DeviceDiagnostics(val power: PowerInfo? = null, val powerMessage: String = "Ожидание RPC", val pingMessage: String = "Ping ещё не запускался")
+internal data class DeviceDiagnostics(val power: PowerInfo? = null, val powerMessage: String = "Ожидание RPC", val pingMessage: String = "Ручной Ping ещё не запускался")
 
 internal data class KnownDevicesUiState(val devices: List<KnownBleDevice> = emptyList(),
     val isLoading: Boolean = false, val hasLoaded: Boolean = false, val failure: BleFailure? = null)

@@ -47,6 +47,7 @@ fun FlipperScreen(flipper: Flipper, modifier: Modifier = Modifier, connectionCon
     val cleanup by flipper.pendingFileCleanup.collectAsStateWithLifecycle()
     val recovering by flipper.isRecovering.collectAsStateWithLifecycle()
     val status = controller.status?.collectAsStateWithLifecycle()?.value
+    val connectingDevice = (controller as? ConnectionViewModel)?.connectingDevice?.collectAsStateWithLifecycle()?.value
     val actions = rememberFilesActions(files, state)
     val activity = remember(context) { context.findActivity() }
     LifecycleStartEffect(controller) {
@@ -60,7 +61,7 @@ fun FlipperScreen(flipper: Flipper, modifier: Modifier = Modifier, connectionCon
             Text("Ожидают очистки файлов: "+cleanup.size+". Удаление повторится при доступном соединении.",
                 Modifier.padding(20.dp), color = MaterialTheme.colorScheme.error)
         }
-        item("device") { DeviceRoute(device, embedded = true) }
+        item("device") { DeviceRoute(device, embedded = true, connectingDevice = connectingDevice) }
         item("file-controls") { FilesControls(state, files, actions) }
         items(state.files, key = { state.path+"/"+it.name }) { file ->
             FileRow(file, state.rpcReady && state.transfer?.active != true) {

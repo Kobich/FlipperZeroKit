@@ -11,7 +11,7 @@
     <string name="flipper_no_devices_yet">Устройства пока не найдены. Проверьте, что Bluetooth включён на Flipper Zero.</string>
     <string name="flipper_device_connecting">Подключение к %1$s…</string>
     <string name="flipper_device_pairing">Ожидание сопряжения с %1$s…</string>
-    <string name="flipper_connected_status">BLE/GATT подключён</string>
+    <string name="flipper_connected_status">Flipper подключён · RPC активен</string>
     <string name="flipper_device_info_title">Информация об устройстве</string>
     <string name="flipper_device_name_label">Устройство</string>
     <string name="flipper_device_address_label">BLE-адрес</string>
@@ -32,6 +32,7 @@
     <string name="flipper_bluetooth_timeout">Время ожидания операции истекло.</string>
     <string name="flipper_bluetooth_unknown_error">Ошибка Bluetooth.</string>
     <string name="flipper_rpc_error">Ошибка RPC.</string>
+    <string name="flipper_rpc_unavailable">Не удалось подтвердить связь по RPC. Подключитесь повторно.</string>
     <string name="flipper_permission_location_off">На Android 11 для BLE-поиска также должны быть включены службы геолокации.</string>
     <string name="flipper_firmware_branch_label">Ветка прошивки</string>
     <string name="flipper_hardware_model_label">Модель</string>
