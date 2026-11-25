@@ -3,7 +3,7 @@
 ## Модули
 
 - :flipper — единая Android Library фичи, namespace dev.flipper: api/model, internal BLE/RPC/transport и ui/ с Compose-экраном FlipperScreen.
-- :sample — демонстрационный хост: Hilt, тема/DataStore, внешний NavHost/нижний бар и владелец Flipper.
+- :sample — демонстрационный хост: Hilt, системная светлая и тёмная тема, внешний NavHost/нижний бар и владелец Flipper.
 
 По последнему уточнению пользователя отдельного Gradle-модуля UI нет. Внутреннее разделение — пакетами; библиотека не требует Hilt, не создаёт Activity и глобальную навигацию.
 
