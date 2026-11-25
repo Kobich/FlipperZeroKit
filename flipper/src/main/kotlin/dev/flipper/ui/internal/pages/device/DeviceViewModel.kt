@@ -10,11 +10,12 @@ import dev.flipper.api.Flipper
 import dev.flipper.api.model.KnownDevicesResult
 import dev.flipper.api.model.BleFailure
 import dev.flipper.api.model.BleConnectionState
-import dev.flipper.api.model.FlipperRpcException
 import dev.flipper.api.model.RpcStatus
 import dev.flipper.internal.DefaultFlipper
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -26,34 +27,33 @@ import kotlinx.coroutines.launch
 internal class DeviceViewModel constructor(
     private val flipper: Flipper,
     private val connectionController: FlipperConnectionController,
+    private val store: DeviceDetailsStore,
 ) : ViewModel() {
-    private val info = MutableStateFlow<DeviceInfoState>(DeviceInfoState.None)
-    private var infoJob: Job? = null
-    private var powerJob: Job? = null
+    private val details = MutableStateFlow(DeviceDetails())
+    private var refreshJob: Job? = null
     private var pingJob: Job? = null
     private var knownDevicesJob: Job? = null
     private val knownDevices = MutableStateFlow(KnownDevicesUiState())
-    private val diagnostics = MutableStateFlow(DeviceDiagnostics())
 
     val state: StateFlow<DeviceUiState> = combine(
-        flipper.connection, flipper.discoveredDevices, flipper.isScanning, info, flipper.rpcStatus,
-    ) { connection, devices, scanning, deviceInfo, rpcStatus ->
-        DeviceUiState(connection, devices, scanning, deviceInfo, rpcStatus)
-    }.combine(diagnostics) { state, details -> state.copy(diagnostics = details) }.combine(knownDevices) { state, known -> state.copy(knownDevices = known) }
+        flipper.connection, flipper.discoveredDevices, flipper.isScanning, flipper.rpcStatus, details,
+    ) { connection, devices, scanning, rpcStatus, deviceDetails ->
+        val address = (connection as? BleConnectionState.Connected)?.device?.address
+        val visibleDetails = deviceDetails.takeIf { it.address == address } ?: DeviceDetails()
+        DeviceUiState(connection, devices, scanning, rpcStatus, visibleDetails)
+    }.combine(knownDevices) { state, known -> state.copy(knownDevices = known) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, DeviceUiState())
 
     init {
         viewModelScope.launch {
             combine(flipper.connection, flipper.rpcStatus) { connection, rpcStatus ->
-                connection is BleConnectionState.Connected && rpcStatus == RpcStatus.ACTIVE
-            }.distinctUntilChanged().collect { ready ->
-                infoJob?.cancel()
-                powerJob?.cancel()
+                (connection as? BleConnectionState.Connected)?.device?.address.takeIf { rpcStatus == RpcStatus.ACTIVE }
+            }.distinctUntilChanged().collect { address ->
+                refreshJob?.cancel()
                 pingJob?.cancel()
-                if (ready) refreshInfo() else {
-                    info.value = DeviceInfoState.None
-                    diagnostics.value = DeviceDiagnostics()
-                }
+                val saved = address?.let(store::read)
+                details.value = (saved ?: DeviceDetails()).copy(address = address)
+                if (address != null && saved == null) refreshInfo(address)
             }
         }
     }
@@ -66,7 +66,7 @@ internal class DeviceViewModel constructor(
                 DeviceIntent.StopScan -> flipper.stopScan()
                 is DeviceIntent.SelectDevice -> connectionController.connect(intent.device)
                 DeviceIntent.Disconnect -> connectionController.disconnect()
-                DeviceIntent.RefreshInfo -> if (isRpcReady()) refreshInfo()
+                DeviceIntent.RefreshInfo -> readyAddress()?.let(::refreshInfo)
                 DeviceIntent.Ping -> if (isRpcReady()) sendPing()
             }
         }
@@ -76,6 +76,17 @@ internal class DeviceViewModel constructor(
         add("Connection: ${flipper.connection.value}")
         add("RPC: ${flipper.rpcStatus.value}")
         addAll((flipper as? DefaultFlipper)?.recentConnectionEvents().orEmpty())
+        val current = details.value
+        add(current.pingMessage ?: "Ручной Ping ещё не запускался")
+        val info = current.info
+        if (info is DeviceInfoState.Ready) {
+            info.data.fields.toSortedMap().forEach { (key, value) -> add("DeviceInfo $key=$value") }
+        } else add("DeviceInfo: $info")
+        val power = current.power
+        if (power is DeviceInfoState.Ready) {
+            power.data.fields.toSortedMap().forEach { (key, value) -> add("PowerInfo $key=$value") }
+        } else add("PowerInfo: $power")
+        add("SD card: ${current.sdCard}")
     }
 
     private fun refreshKnownDevices() {
@@ -95,49 +106,56 @@ internal class DeviceViewModel constructor(
         }
     }
 
-    private fun isRpcReady() = flipper.connection.value is BleConnectionState.Connected &&
-        flipper.rpcStatus.value == RpcStatus.ACTIVE
+    private fun readyAddress() = (flipper.connection.value as? BleConnectionState.Connected)?.device?.address
+        .takeIf { flipper.rpcStatus.value == RpcStatus.ACTIVE }
+
+    private fun isRpcReady() = readyAddress() != null
 
     private fun sendPing() {
         if (pingJob?.isActive == true) return
         pingJob = viewModelScope.launch {
-            diagnostics.update { it.copy(pingMessage = "Ожидание PingResponse…") }
+            details.update { it.copy(pingMessage = "Ожидание PingResponse…") }
             val started = SystemClock.elapsedRealtime()
             try {
                 flipper.ping()
-                diagnostics.update { it.copy(pingMessage = "Ping OK: "+(SystemClock.elapsedRealtime()-started)+" мс") }
+                details.update { it.copy(pingMessage = "Ping OK: "+(SystemClock.elapsedRealtime()-started)+" мс") }
             } catch (cancel: CancellationException) { throw cancel }
-            catch (error: Exception) { diagnostics.update { it.copy(pingMessage = "Ping: "+error.message) } }
+            catch (error: Exception) { details.update { it.copy(pingMessage = "Ping: "+error.message) } }
         }
     }
 
-    private fun refreshInfo() {
-        powerJob?.cancel()
-        powerJob = viewModelScope.launch {
-            diagnostics.update { it.copy(powerMessage = "Получение PowerInfo…") }
-            try {
-                val power = flipper.getPowerInfo()
-                diagnostics.update { it.copy(power = power, powerMessage = "PowerInfo получен") }
-            } catch (cancel: CancellationException) { throw cancel }
-            catch (error: Exception) {
-                Log.e("DeviceViewModel", "PowerInfo failed", error)
-                diagnostics.update { it.copy(power = null, powerMessage = "PowerInfo: "+error.message) }
+    private fun refreshInfo(address: String) {
+        refreshJob?.cancel()
+        details.update { DeviceDetails(address = address, pingMessage = it.pingMessage) }
+        refreshJob = viewModelScope.launch {
+            val infoJob = launch {
+                val info = loadInfo("DeviceInfo") { flipper.getDeviceInfo() }
+                details.update { it.copy(info = info) }
             }
-        }
-        infoJob?.cancel()
-        infoJob = viewModelScope.launch {
-            info.value = DeviceInfoState.Loading
-            try {
-                info.value = DeviceInfoState.Ready(flipper.getDeviceInfo())
-            } catch (cancel: CancellationException) {
-                throw cancel
-            } catch (error: FlipperRpcException) {
-                Log.e("DeviceViewModel", "DeviceInfo failed: " + error.reason, error)
-                info.value = DeviceInfoState.Failed(error.reason, error.statusCode, error.message)
-            } catch (error: Exception) {
-                Log.e("DeviceViewModel", "DeviceInfo failed", error)
-                info.value = DeviceInfoState.Failed(detail = error.message)
+            val powerJob = launch {
+                val power = loadInfo("PowerInfo") { flipper.getPowerInfo() }
+                details.update { it.copy(power = power) }
             }
+            val sdJob = launch {
+                val sdCard = loadInfo("Storage.Info /ext") { flipper.getStorageInfo("/ext") }
+                details.update { it.copy(sdCard = sdCard) }
+            }
+            infoJob.join()
+            powerJob.join()
+            sdJob.join()
+            if (readyAddress() == address) store.save(address, details.value)
         }
+    }
+
+    private suspend fun <T> loadInfo(name: String, load: suspend () -> T): DeviceInfoState<T> = try {
+        val data = load()
+        currentCoroutineContext().ensureActive()
+        DeviceInfoState.Ready(data)
+    } catch (cancel: CancellationException) {
+        throw cancel
+    } catch (error: Exception) {
+        currentCoroutineContext().ensureActive()
+        Log.e("DeviceViewModel", "$name failed", error)
+        DeviceInfoState.Failed(error)
     }
 }

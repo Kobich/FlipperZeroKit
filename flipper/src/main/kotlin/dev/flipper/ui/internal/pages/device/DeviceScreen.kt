@@ -11,6 +11,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,7 +21,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Bluetooth
 import androidx.compose.material3.Card
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -42,13 +43,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.flipper.R
 import dev.flipper.api.model.BleConnectionState
 import dev.flipper.api.model.BleDevice
-import dev.flipper.api.model.FlipperRpcException
 import androidx.compose.material3.TextButton
 import dev.flipper.api.model.BleFailure
 import dev.flipper.ui.internal.components.FlipperOutlinedButton
 import dev.flipper.ui.internal.components.FlipperPrimaryButton
-import dev.flipper.ui.internal.components.InfoPanel
-import dev.flipper.ui.internal.components.InfoRow
 import dev.flipper.ui.internal.components.SectionTitle
 import dev.flipper.api.FlipperPermissions
 
@@ -122,13 +120,6 @@ internal fun DeviceRoute(viewModel: DeviceViewModel, embedded: Boolean = false, 
                 appendLine("FlipperZeroKit $version / Android ${android.os.Build.VERSION.RELEASE}")
                 viewModel.connectionDiagnostics().forEach { appendLine(it) }
                 appendLine("Known devices: "+uiState.knownDevices)
-                appendLine(uiState.diagnostics.pingMessage)
-                when (val info = uiState.info) {
-                    is DeviceInfoState.Ready -> info.data.fields.toSortedMap().forEach { (k, v) -> appendLine("DeviceInfo $k=$v") }
-                    else -> appendLine("DeviceInfo: $info")
-                }
-                appendLine(uiState.diagnostics.powerMessage)
-                uiState.diagnostics.power?.fields?.toSortedMap()?.forEach { (k, v) -> appendLine("PowerInfo $k=$v") }
             }
             context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Flipper diagnostics", report))
         }
@@ -152,12 +143,13 @@ private fun DeviceScreen(
     onCopyDiagnostics: () -> Unit,
 ) {
     Column(
-        modifier = if (embedded) Modifier.fillMaxWidth().padding(20.dp)
-            else Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = (if (embedded) Modifier.fillMaxWidth()
+            else Modifier.fillMaxSize().verticalScroll(rememberScrollState()))
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(stringResource(R.string.flipper_connection_title), style = MaterialTheme.typography.headlineMedium)
-        TextButton(onClick = onCopyDiagnostics) { Text("Скопировать диагностику") }
+        if (!embedded) Text(stringResource(R.string.flipper_connection_title), style = MaterialTheme.typography.titleLarge)
+        if (!state.isRpcReady) TextButton(onClick = onCopyDiagnostics) { Text("Скопировать диагностику") }
         val connection = state.connection
         val pendingDevice = when (connection) {
             is BleConnectionState.Pairing -> connection.device
@@ -167,61 +159,24 @@ private fun DeviceScreen(
         }
         when {
             connection is BleConnectionState.Connected && state.isRpcReady -> {
-                Text(
-                    stringResource(R.string.flipper_connected_status),
-                    color = MaterialTheme.colorScheme.primary,
-                    style = MaterialTheme.typography.titleSmall,
-                )
-                SectionTitle(stringResource(R.string.flipper_device_info_title))
-                InfoPanel {
-                    InfoRow(stringResource(R.string.flipper_device_name_label), connection.device.name)
-                    InfoRow(stringResource(R.string.flipper_device_address_label), connection.device.address)
-                    when (val info = state.info) {
-                        DeviceInfoState.None -> Text(stringResource(R.string.flipper_loading_info))
-                        DeviceInfoState.Loading -> {
-                            CircularProgressIndicator()
-                            Text(stringResource(R.string.flipper_loading_info))
-                        }
-                        is DeviceInfoState.Ready -> {
-                            val unknown = stringResource(R.string.flipper_value_unknown)
-                            InfoRow(stringResource(R.string.flipper_firmware_label), info.data.firmwareVersion ?: unknown)
-                            InfoRow(stringResource(R.string.flipper_firmware_branch_label), info.data.firmwareBranch ?: unknown)
-                            InfoRow(stringResource(R.string.flipper_hardware_label), info.data.hardwareVersion ?: unknown)
-                            InfoRow(stringResource(R.string.flipper_hardware_model_label), info.data.hardwareModel ?: unknown)
-                            InfoRow(stringResource(R.string.flipper_uid_label), info.data.hardwareUid ?: unknown)
-                            var showAll by remember(info.data) { mutableStateOf(false) }
-                            TextButton(onClick = { showAll = !showAll }) {
-                                Text(stringResource(if (showAll) R.string.flipper_hide_device_fields else R.string.flipper_show_device_fields, info.data.fields.size))
-                            }
-                            if (showAll) info.data.fields.toSortedMap().forEach { (key, value) -> InfoRow(key, value) }
-                        }
-                        is DeviceInfoState.Failed -> Text(deviceInfoError(info)+"\n"+(info.detail ?: ""), color = MaterialTheme.colorScheme.error)
+                DeviceOverview(connection.device, stringResource(R.string.flipper_connected_status), state.details)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Button(onClick = onRefresh, enabled = !state.details.isLoading) {
+                        Text(stringResource(R.string.flipper_refresh_info))
                     }
+                    TextButton(onClick = sendPing) { Text(stringResource(R.string.flipper_command_ping)) }
+                    TextButton(onClick = onDisconnect) { Text(stringResource(R.string.flipper_disconnect_device)) }
+                    TextButton(onClick = onCopyDiagnostics) { Text("Скопировать диагностику") }
                 }
-                InfoPanel {
-                    Text(state.diagnostics.powerMessage)
-                    state.diagnostics.power?.let { power ->
-                        InfoRow("Заряд", power.chargePercent?.let { "$it%" } ?: "Неизвестен")
-                        InfoRow("Питание", power.chargeState ?: "Неизвестно")
-                        var showPower by remember(power) { mutableStateOf(false) }
-                        TextButton(onClick = { showPower = !showPower }) { Text("Все поля PowerInfo") }
-                        if (showPower) power.fields.toSortedMap().forEach { (key, value) -> InfoRow(key, value) }
-                    }
-                }
-                Text(state.diagnostics.pingMessage)
-                FlipperPrimaryButton(stringResource(R.string.flipper_command_ping), sendPing, enabled = state.isRpcReady)
-                FlipperPrimaryButton(stringResource(R.string.flipper_refresh_info), onRefresh,
-                    enabled = state.isRpcReady && state.info !is DeviceInfoState.Loading)
-
-                FlipperOutlinedButton(stringResource(R.string.flipper_disconnect_device), onDisconnect)
+                state.details.pingMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             }
             pendingDevice != null -> {
-                CircularProgressIndicator()
-                Text(when (connection) {
-                    is BleConnectionState.Pairing -> stringResource(R.string.flipper_device_pairing, pendingDevice.name)
+                val status = when (connection) {
+                    is BleConnectionState.Pairing -> stringResource(R.string.flipper_device_pairing)
                     is BleConnectionState.Connected -> stringResource(R.string.flipper_rpc_waiting)
-                    else -> stringResource(R.string.flipper_device_connecting, pendingDevice.name)
-                })
+                    else -> stringResource(R.string.flipper_device_connecting)
+                }
+                DeviceOverview(pendingDevice, status)
                 FlipperOutlinedButton(stringResource(R.string.flipper_disconnect_device), onDisconnect)
             }
             else -> {
@@ -318,15 +273,4 @@ private fun failureText(failure: BleFailure): String = when (failure) {
     BleFailure.RPCError,
     BleFailure.EnableCCCDProblem,
     is BleFailure.RPCReadError -> stringResource(R.string.flipper_rpc_error)
-}
-
-@Composable
-private fun deviceInfoError(error: DeviceInfoState.Failed): String = when (error.reason) {
-    FlipperRpcException.Reason.NOT_READY -> stringResource(R.string.flipper_rpc_waiting)
-    FlipperRpcException.Reason.SESSION_CLOSED -> stringResource(R.string.flipper_device_info_session_closed)
-    FlipperRpcException.Reason.TIMEOUT -> stringResource(R.string.flipper_device_info_timeout)
-    FlipperRpcException.Reason.REMOTE_ERROR -> stringResource(R.string.flipper_device_info_remote_error, error.statusCode ?: -1)
-    FlipperRpcException.Reason.SEND_FAILED -> stringResource(R.string.flipper_device_info_send_failed)
-    FlipperRpcException.Reason.UNEXPECTED_RESPONSE -> stringResource(R.string.flipper_device_info_unexpected_response)
-    null -> stringResource(R.string.flipper_device_info_failed)
 }

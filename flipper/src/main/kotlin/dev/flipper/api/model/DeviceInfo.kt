@@ -3,6 +3,7 @@ package dev.flipper.api.model
 /** Complete DeviceInfo response. Missing firmware-specific fields remain null. */
 data class DeviceInfo(val fields: Map<String, String>) {
     val firmwareVersion: String? get() = field("firmware_version", "firmware.version")
+    val firmwareBuildDate: String? get() = field("firmware_build_date", "firmware.build.date")
     val firmwareBranch: String? get() = field("firmware_branch", "firmware.branch.name", "firmware.branch")
     val hardwareVersion: String? get() = field("hardware_ver", "hardware.ver", "hardware.version")
     val hardwareModel: String? get() = field("hardware_model", "hardware.model")

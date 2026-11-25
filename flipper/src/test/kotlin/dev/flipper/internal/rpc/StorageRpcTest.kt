@@ -58,6 +58,39 @@ class StorageRpcTest {
         assertEquals(4294967295L, result.last().sizeBytes)
     }
 
+    @Test fun storageInfoRequestsSdCardAndKeeps64BitCapacity() = runBlocking<Unit> {
+        val total = 128_000_000_000L
+        val free = 96_000_000_000L
+        val info = client.getStorageInfo("/ext", 1_000) { request ->
+            assertEquals("/ext", request.storageInfoRequest.path)
+            client.onMessage(reply(request.commandId)
+                .setStorageInfoResponse(StorageProto.InfoResponse.newBuilder().setTotalSpace(total).setFreeSpace(free))
+                .build())
+            null
+        }
+        assertEquals(total, info.totalBytes)
+        assertEquals(free, info.freeBytes)
+        assertEquals(32_000_000_000L, info.usedBytes)
+    }
+
+    @Test fun storageInfoRejectsInvalidCapacityAndReportsUnmountedCard() = runBlocking<Unit> {
+        fails(FlipperRpcException.Reason.UNEXPECTED_RESPONSE) {
+            client.getStorageInfo("/ext", 1_000) { request ->
+                client.onMessage(reply(request.commandId)
+                    .setStorageInfoResponse(StorageProto.InfoResponse.newBuilder().setTotalSpace(10).setFreeSpace(11))
+                    .build())
+                null
+            }
+        }
+        fails(FlipperRpcException.Reason.REMOTE_ERROR) {
+            client.getStorageInfo("/ext", 1_000) { request ->
+                client.onMessage(reply(request.commandId)
+                    .setCommandStatus(FlipperProto.CommandStatus.ERROR_STORAGE_NOT_READY).build())
+                null
+            }
+        }
+    }
+
     @Test fun emptyDirectoryIsValidAndRemoteFailureIsNotEmptySuccess() = runBlocking<Unit> {
         assertTrue(client.listFiles("/ext", 1_000) { request ->
             client.onMessage(reply(request.commandId).setStorageListResponse(StorageProto.ListResponse.getDefaultInstance()).build()); null

@@ -4,6 +4,7 @@ import android.content.Context
 import dev.flipper.api.model.PendingFileCleanup
 import dev.flipper.api.model.PowerInfo
 import dev.flipper.api.model.StorageEntry
+import dev.flipper.api.model.StorageInfo
 import dev.flipper.api.model.TransferProgress
 import dev.flipper.api.model.TransferResult
 import java.io.InputStream
@@ -43,6 +44,9 @@ interface Flipper {
     suspend fun getDeviceInfo(timeoutMillis: Long = 10_000L): DeviceInfo
 
     suspend fun getPowerInfo(timeoutMillis: Long = 10_000L): PowerInfo
+    /** Reads capacity for a storage path such as /ext. Requires an active RPC session. */
+    suspend fun getStorageInfo(path: String, timeoutMillis: Long = 10_000L): StorageInfo =
+        throw UnsupportedOperationException("This Flipper client does not report storage capacity")
     /** Completes only after PingResponse, rather than GATT write acknowledgement. */
     suspend fun ping(timeoutMillis: Long = 10_000L)
     suspend fun listFiles(path: String, timeoutMillis: Long = 30_000L): List<StorageEntry>

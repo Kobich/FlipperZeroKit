@@ -50,6 +50,7 @@ import java.io.IOException
 import java.security.MessageDigest
 import dev.flipper.api.model.PowerInfo
 import dev.flipper.api.model.StorageEntry
+import dev.flipper.api.model.StorageInfo
 import dev.flipper.api.model.TransferProgress
 import dev.flipper.api.model.TransferResult
 import kotlinx.coroutines.sync.Mutex
@@ -607,6 +608,20 @@ internal class DefaultFlipper(
     override suspend fun getPowerInfo(timeoutMillis: Long): PowerInfo = withContext(Dispatchers.Main.immediate) {
         val gatt = requireRpcGatt()
         rpcClient.getPowerInfo(timeoutMillis) { sendRpcMessage(it, gatt) }
+    }
+
+    override suspend fun getStorageInfo(path: String, timeoutMillis: Long): StorageInfo = withContext(Dispatchers.Main.immediate) {
+        checkPath(path)
+        require(timeoutMillis > 0)
+        val gatt = requireRpcGatt()
+        withTimeoutOrNull(timeoutMillis) {
+            storageMutex.withLock {
+                if (requireRpcGatt() !== gatt) {
+                    throw FlipperRpcException(FlipperRpcException.Reason.SESSION_CLOSED, "RPC session changed")
+                }
+                rpcClient.getStorageInfo(path, timeoutMillis) { sendRpcMessage(it, gatt) }
+            }
+        } ?: throw FlipperRpcException(FlipperRpcException.Reason.TIMEOUT, "Storage info timed out after $timeoutMillis ms")
     }
 
     override suspend fun ping(timeoutMillis: Long) = withContext(Dispatchers.Main.immediate) {

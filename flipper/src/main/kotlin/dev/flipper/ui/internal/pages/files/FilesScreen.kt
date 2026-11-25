@@ -70,12 +70,12 @@ internal fun rememberFilesActions(viewModel: FilesViewModel, state: FilesUiState
 }
 
 @Composable
-internal fun FilesControls(state: FilesUiState, viewModel: FilesViewModel, actions: FilesActions) {
+internal fun FilesControls(state: FilesUiState, viewModel: FilesViewModel, actions: FilesActions, deferredCleanup: Int) {
     val context = LocalContext.current
     val enabled = state.rpcReady && state.transfer?.active != true
-    Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Файлы Flipper", style = MaterialTheme.typography.titleLarge)
-        Text(if (state.rpcReady) "Каталог — открыть, файл — скачать." else "Подключите устройство и дождитесь готовности общения.")
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Файлы", style = MaterialTheme.typography.titleMedium)
+        if (!state.rpcReady) Text("Подключите устройство для работы с файлами.")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("/", "/ext", "/int").forEach { path -> OutlinedButton(onClick = { viewModel.open(path) }, enabled = enabled) { Text(path) } }
         }
@@ -113,6 +113,10 @@ internal fun FilesControls(state: FilesUiState, viewModel: FilesViewModel, actio
                 "Device: "+state.deviceAddress+"\nPath: "+state.path+"\nError: "+state.error+"\nTransfer: "+state.transfer))
         }) { Text("Скопировать результат") }
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        if (deferredCleanup > 0) {
+            Text("Отложена очистка файлов: $deferredCleanup. Она продолжится при доступном соединении.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        }
         if (state.cleanupStatus.isNotBlank()) Text(state.cleanupStatus, style = MaterialTheme.typography.bodySmall)
         if (state.isLoading) { LinearProgressIndicator(Modifier.fillMaxWidth()); Text("Чтение каталога…") }
         if (state.rpcReady && !state.isLoading && state.files.isEmpty() && state.error == null) Text("Каталог пуст")
@@ -121,7 +125,7 @@ internal fun FilesControls(state: FilesUiState, viewModel: FilesViewModel, actio
 
 @Composable
 internal fun FileRow(file: StorageEntry, enabled: Boolean, onClick: () -> Unit) {
-    Card(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)) {
+    Card(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
         Column(Modifier.padding(16.dp)) {
             Text((if (file.isDirectory) "Каталог: " else "Файл: ")+file.name, style = MaterialTheme.typography.titleSmall)
             if (!file.isDirectory) Text(file.sizeBytes.toString()+" байт · скачать")

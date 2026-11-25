@@ -6,8 +6,8 @@ import dev.flipper.api.model.BleFailure
 import dev.flipper.api.model.KnownBleDevice
 import dev.flipper.api.model.DeviceInfo
 import dev.flipper.api.model.PowerInfo
-import dev.flipper.api.model.FlipperRpcException
 import dev.flipper.api.model.RpcStatus
+import dev.flipper.api.model.StorageInfo
 
 internal sealed interface DeviceIntent {
     data object RefreshKnownDevices : DeviceIntent
@@ -19,26 +19,32 @@ internal sealed interface DeviceIntent {
     data object Ping : DeviceIntent
 }
 
-internal sealed interface DeviceInfoState {
-    data object None : DeviceInfoState
-    data object Loading : DeviceInfoState
-    data class Ready(val data: DeviceInfo) : DeviceInfoState
-    data class Failed(val reason: FlipperRpcException.Reason? = null, val statusCode: Int? = null, val detail: String? = null) : DeviceInfoState
+internal sealed interface DeviceInfoState<out T> {
+    data object Loading : DeviceInfoState<Nothing>
+    data class Ready<T>(val data: T) : DeviceInfoState<T>
+    data class Failed(val error: Exception) : DeviceInfoState<Nothing>
+}
+
+internal data class DeviceDetails(
+    val address: String? = null,
+    val info: DeviceInfoState<DeviceInfo> = DeviceInfoState.Loading,
+    val power: DeviceInfoState<PowerInfo> = DeviceInfoState.Loading,
+    val sdCard: DeviceInfoState<StorageInfo> = DeviceInfoState.Loading,
+    val pingMessage: String? = null,
+) {
+    val isLoading: Boolean get() = listOf(info, power, sdCard).any { it == DeviceInfoState.Loading }
 }
 
 internal data class DeviceUiState(
     val connection: BleConnectionState = BleConnectionState.Disconnected,
     val devices: List<BleDevice> = emptyList(),
     val isScanning: Boolean = false,
-    val info: DeviceInfoState = DeviceInfoState.None,
     val rpcStatus: RpcStatus = RpcStatus.NOT_ACTIVE,
-    val diagnostics: DeviceDiagnostics = DeviceDiagnostics(),
+    val details: DeviceDetails = DeviceDetails(),
     val knownDevices: KnownDevicesUiState = KnownDevicesUiState(),
 ) {
     val isRpcReady: Boolean get() = connection is BleConnectionState.Connected && rpcStatus == RpcStatus.ACTIVE
 }
-
-internal data class DeviceDiagnostics(val power: PowerInfo? = null, val powerMessage: String = "Ожидание RPC", val pingMessage: String = "Ручной Ping ещё не запускался")
 
 internal data class KnownDevicesUiState(val devices: List<KnownBleDevice> = emptyList(),
     val isLoading: Boolean = false, val hasLoaded: Boolean = false, val failure: BleFailure? = null)

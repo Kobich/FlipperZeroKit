@@ -10,6 +10,7 @@ import dev.flipper.api.model.FlipperRpcException
 import dev.flipper.api.model.FlipperRpcException.Reason
 import dev.flipper.api.model.PowerInfo
 import dev.flipper.api.model.StorageEntry
+import dev.flipper.api.model.StorageInfo
 import java.io.InputStream
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -126,6 +127,20 @@ internal class RpcClient(private val idleTimeoutMillis: Long = 60_000L, private 
 
     suspend fun getPowerInfo(timeoutMillis: Long, send: suspend (FlipperProto.Main) -> BleFailure?): PowerInfo =
         PowerInfo(fields(true, timeoutMillis, send))
+
+    suspend fun getStorageInfo(path: String, timeoutMillis: Long, send: suspend (FlipperProto.Main) -> BleFailure?): StorageInfo {
+        var result: StorageInfo? = null
+        exchange(timeoutMillis, { id ->
+            sendChecked(FlipperProto.Main.newBuilder().setCommandId(id)
+                .setStorageInfoRequest(StorageProto.InfoRequest.newBuilder().setPath(path)).build(), send)
+        }) { message ->
+            expect(message, message.hasStorageInfoResponse() && !message.hasNext)
+            val capacity = message.storageInfoResponse
+            expect(message, capacity.freeSpace >= 0 && capacity.freeSpace <= capacity.totalSpace)
+            result = StorageInfo(capacity.totalSpace, capacity.freeSpace)
+        }
+        return checkNotNull(result)
+    }
 
     suspend fun ping(timeoutMillis: Long, send: suspend (FlipperProto.Main) -> BleFailure?) {
         require(timeoutMillis > 0)
