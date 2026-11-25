@@ -1,20 +1,14 @@
 <resources>
     <string name="flipper_connection_title">Flipper Zero</string>
-    <string name="flipper_devices">Devices</string>
-    <string name="flipper_scan">Scan</string>
-    <string name="flipper_known_devices">Known</string>
-    <string name="flipper_nearby_devices">Nearby</string>
-    <string name="flipper_refresh_known_devices">Refresh known devices</string>
-    <string name="flipper_device_paired">Paired</string>
-    <string name="flipper_android_connected">Android connected</string>
-    <string name="flipper_show_more_devices">Show %1$d more</string>
-    <string name="flipper_show_fewer_devices">Show fewer</string>
+    <string name="flipper_connection_intro">Choose a paired Flipper or scan for a new device.</string>
+    <string name="flipper_connect_device">Scan for devices</string>
     <string name="flipper_disconnect_device">Disconnect</string>
     <string name="flipper_refresh_info">Refresh device info</string>
     <string name="flipper_stop_scan">Stop scan</string>
-    <string name="flipper_scanning">Scanning nearby…</string>
-    <string name="flipper_no_devices_yet">No new devices found</string>
-    <string name="flipper_no_known_devices">Tap Scan to find a device.</string>
+    <string name="flipper_scan_again">Scan again</string>
+    <string name="flipper_scanning">Scanning for Bluetooth devices…</string>
+    <string name="flipper_available_devices">Discovered devices</string>
+    <string name="flipper_no_devices_yet">No devices found yet. Check that Bluetooth is enabled on your Flipper.</string>
     <string name="flipper_device_connecting">Connecting over Bluetooth…</string>
     <string name="flipper_device_pairing">Waiting for pairing…</string>
     <string name="flipper_connected_status">RPC connected</string>
@@ -106,4 +100,19 @@
     <string name="flipper_copy_diagnostics">Copy diagnostics</string>
     <string name="flipper_recovering_transfer">Restoring the connection and cleaning up…</string>
     <string name="flipper_cleaning_up_transfer">Cleaning up the transfer…</string>
+    <string name="flipper_files_connect">Connect your Flipper to browse files.</string>
+    <string name="flipper_files_empty">Empty folder</string>
+    <string name="flipper_files_up">Go to parent folder</string>
+    <string name="flipper_files_locations">Choose storage location</string>
+    <string name="flipper_files_root">Root (/)</string>
+    <string name="flipper_files_sd_card">SD card (/ext)</string>
+    <string name="flipper_files_internal">Internal (/int)</string>
+    <string name="flipper_files_refresh">Refresh folder</string>
+    <string name="flipper_files_choose">Choose a file to upload</string>
+    <string name="flipper_files_upload_name">Filename (ASCII)</string>
+    <string name="flipper_files_upload">Upload</string>
+    <string name="flipper_files_cancel_transfer">Cancel transfer</string>
+    <string name="flipper_files_copy_result">Copy transfer result</string>
+    <string name="flipper_files_open_folder">Open folder</string>
+    <string name="flipper_files_download">Download file</string>
 </resources>

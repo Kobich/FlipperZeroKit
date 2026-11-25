@@ -68,7 +68,7 @@ fun FlipperScreen(flipper: Flipper, modifier: Modifier = Modifier, connectionCon
         controller.onEnter()
         onStopOrDispose { controller.onLeave(activity?.isChangingConfigurations == true) }
     }
-    LazyColumn(modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    LazyColumn(modifier.fillMaxSize()) {
         if (!status.isNullOrBlank()) item("connection-status") { Text(status, Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) }
         item("device") { DeviceRoute(device, embedded = true, connectingDevice = connectingDevice) }
         item("file-controls") { FilesControls(state, files, actions, deferredCleanup) }

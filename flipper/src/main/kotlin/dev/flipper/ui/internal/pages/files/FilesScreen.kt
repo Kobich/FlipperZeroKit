@@ -5,32 +5,59 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.pm.PackageManager
 import android.os.Build
+import android.text.format.Formatter
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ArrowDropDown
+import androidx.compose.material.icons.outlined.ArrowUpward
+import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.InsertDriveFile
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.UploadFile
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
+import dev.flipper.R
 import dev.flipper.api.model.StorageEntry
+import dev.flipper.ui.internal.components.rememberFileSizeContext
 
 internal data class FilesActions(val choose: () -> Unit, val download: (StorageEntry) -> Unit,
     val upload: () -> Unit, val name: String, val changeName: (String) -> Unit)
@@ -73,62 +100,148 @@ internal fun rememberFilesActions(viewModel: FilesViewModel, state: FilesUiState
 internal fun FilesControls(state: FilesUiState, viewModel: FilesViewModel, actions: FilesActions, deferredCleanup: Int) {
     val context = LocalContext.current
     val enabled = state.rpcReady && state.transfer?.active != true
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Files", style = MaterialTheme.typography.titleMedium)
-        if (!state.rpcReady) Text("Connect your Flipper to browse files.")
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("/", "/ext", "/int").forEach { path -> OutlinedButton(onClick = { viewModel.open(path) }, enabled = enabled) { Text(path) } }
+    val copyResult = {
+        val report = "Device: ${state.deviceAddress}\nPath: ${state.path}\nError: ${state.error}\nTransfer: ${state.transfer}"
+        context.getSystemService(ClipboardManager::class.java)
+            .setPrimaryClip(ClipData.newPlainText("Flipper file result", report))
+    }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (state.rpcReady) {
+            FilesToolbar(state.path, enabled, state.isLoading, viewModel::open, viewModel::refresh, actions.choose)
+        } else {
+            Text(stringResource(R.string.flipper_files_connect), style = MaterialTheme.typography.bodySmall)
         }
-        Text(state.path, style = MaterialTheme.typography.titleMedium)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = { viewModel.open(state.path.substringBeforeLast('/').ifEmpty { "/" }) }, enabled = enabled && state.path != "/") { Text("Up") }
-            TextButton(onClick = viewModel::refresh, enabled = enabled && !state.isLoading) { Text("Refresh") }
-        }
-        state.transfer?.let { transfer -> Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(transfer.title, style = MaterialTheme.typography.titleSmall)
-                Text(transfer.bytes.toString()+" / "+(transfer.total?.toString() ?: "?")+" bytes")
-                if (transfer.active) {
-                    val total = transfer.total
-                    if (total != null && total > 0) {
-                        val progress = (transfer.bytes.toDouble()/total).toFloat().coerceIn(0f,1f)
-                        LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
-                        Text((progress*100).toInt().toString()+"%")
-                    } else LinearProgressIndicator(Modifier.fillMaxWidth())
-                    TextButton(onClick = viewModel::cancelTransfer) { Text("Cancel transfer") }
-                }
-                Text(transfer.message)
+        state.transfer?.let { TransferSummary(it, viewModel::cancelTransfer, copyResult) }
+        state.upload?.let { UploadFields(it, actions, enabled, state.path != "/") }
+        state.error?.let { error ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(error, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                if (state.transfer == null) CopyResultButton(copyResult)
             }
-        } }
-        OutlinedButton(onClick = actions.choose, enabled = enabled && state.path != "/") { Text("Choose a file") }
-        state.upload?.let { selected ->
-            Text("Source: "+selected.originalName+" ("+(selected.sizeBytes?.toString() ?: "?")+" bytes)")
-            OutlinedTextField(actions.name, actions.changeName, enabled = enabled, singleLine = true,
-                label = { Text("Filename on Flipper (ASCII)") }, modifier = Modifier.fillMaxWidth())
-            Text("Folder: "+state.path+" · existing names get a (2), (3), or later suffix")
-            Button(onClick = actions.upload, enabled = enabled && state.path != "/") { Text("Upload to Flipper") }
         }
-        if (state.transfer != null || state.error != null) TextButton(onClick = {
-            context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Flipper file result",
-                "Device: "+state.deviceAddress+"\nPath: "+state.path+"\nError: "+state.error+"\nTransfer: "+state.transfer))
-        }) { Text("Copy result") }
-        state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         if (deferredCleanup > 0) {
             Text("Files pending cleanup: $deferredCleanup. Cleanup will resume when Flipper is available.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
         }
         if (state.cleanupStatus.isNotBlank()) Text(state.cleanupStatus, style = MaterialTheme.typography.bodySmall)
-        if (state.isLoading) { LinearProgressIndicator(Modifier.fillMaxWidth()); Text("Loading folder…") }
-        if (state.rpcReady && !state.isLoading && state.files.isEmpty() && state.error == null) Text("Empty folder")
+        if (state.isLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
+        if (state.rpcReady && !state.isLoading && state.files.isEmpty() && state.error == null) {
+            Text(stringResource(R.string.flipper_files_empty), style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable
+private fun FilesToolbar(path: String, enabled: Boolean, loading: Boolean, onOpen: (String) -> Unit,
+    onRefresh: () -> Unit, onChoose: () -> Unit) {
+    var showLocations by remember { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = { onOpen(path.substringBeforeLast('/').ifEmpty { "/" }) }, enabled = enabled && path != "/") {
+            Icon(Icons.Outlined.ArrowUpward, contentDescription = stringResource(R.string.flipper_files_up))
+        }
+        Box(Modifier.weight(1f)) {
+            TextButton(onClick = { showLocations = true }, enabled = enabled, modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 4.dp)) {
+                Text(path, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
+                Icon(Icons.Outlined.ArrowDropDown, contentDescription = stringResource(R.string.flipper_files_locations))
+            }
+            DropdownMenu(expanded = showLocations && enabled, onDismissRequest = { showLocations = false }) {
+                listOf(
+                    "/" to R.string.flipper_files_root,
+                    "/ext" to R.string.flipper_files_sd_card,
+                    "/int" to R.string.flipper_files_internal,
+                ).forEach { (location, label) ->
+                    DropdownMenuItem(text = { Text(stringResource(label)) }, onClick = {
+                        showLocations = false
+                        onOpen(location)
+                    })
+                }
+            }
+        }
+        IconButton(onClick = onRefresh, enabled = enabled && !loading) {
+            Icon(Icons.Outlined.Refresh, contentDescription = stringResource(R.string.flipper_files_refresh))
+        }
+        IconButton(onClick = onChoose, enabled = enabled && path != "/") {
+            Icon(Icons.Outlined.UploadFile, contentDescription = stringResource(R.string.flipper_files_choose))
+        }
+    }
+}
+
+@Composable
+private fun UploadFields(selected: SelectedUpload, actions: FilesActions, enabled: Boolean, canUpload: Boolean) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(selected.originalName, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
+            maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
+        selected.sizeBytes?.let { size ->
+            Text(Formatter.formatShortFileSize(rememberFileSizeContext(), size), style = MaterialTheme.typography.bodySmall)
+        }
+    }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+        OutlinedTextField(actions.name, actions.changeName, enabled = enabled, singleLine = true,
+            label = { Text(stringResource(R.string.flipper_files_upload_name)) }, modifier = Modifier.weight(1f))
+        TextButton(onClick = actions.upload, enabled = enabled && canUpload) {
+            Text(stringResource(R.string.flipper_files_upload))
+        }
+    }
+}
+
+@Composable
+private fun TransferSummary(transfer: TransferUi, onCancel: () -> Unit, onCopyResult: () -> Unit) {
+    val total = transfer.total
+    val progress = total?.takeIf { it > 0 }?.let { (transfer.bytes.toDouble() / it).toFloat().coerceIn(0f, 1f) }
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(start = 12.dp, end = 4.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(transfer.title, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
+                if (transfer.active) {
+                    IconButton(onClick = onCancel, enabled = !transfer.isCleaningUp) {
+                        Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.flipper_files_cancel_transfer))
+                    }
+                } else CopyResultButton(onCopyResult)
+            }
+            if (transfer.active) {
+                if (progress == null) LinearProgressIndicator(Modifier.fillMaxWidth().padding(end = 8.dp))
+                else LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().padding(end = 8.dp))
+                val bytes = "${transfer.bytes} / ${total ?: "?"} bytes"
+                Text(if (progress == null) bytes else "$bytes · ${(progress * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
+            }
+            Text(transfer.message, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable
+private fun CopyResultButton(onClick: () -> Unit) {
+    IconButton(onClick = onClick) {
+        Icon(Icons.Outlined.ContentCopy, contentDescription = stringResource(R.string.flipper_files_copy_result))
     }
 }
 
 @Composable
 internal fun FileRow(file: StorageEntry, enabled: Boolean, onClick: () -> Unit) {
-    Card(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-        Column(Modifier.padding(16.dp)) {
-            Text((if (file.isDirectory) "Folder: " else "File: ")+file.name, style = MaterialTheme.typography.titleSmall)
-            if (!file.isDirectory) Text(file.sizeBytes.toString()+" bytes · download")
+    val actionLabel = stringResource(if (file.isDirectory) R.string.flipper_files_open_folder else R.string.flipper_files_download)
+    val contentColor = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+    val secondaryColor = MaterialTheme.colorScheme.onSurfaceVariant
+    Column {
+        Row(
+            modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 48.dp)
+                .clickable(enabled = enabled, role = Role.Button, onClickLabel = actionLabel, onClick = onClick)
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(if (file.isDirectory) Icons.Outlined.Folder else Icons.Outlined.InsertDriveFile, contentDescription = null,
+                modifier = Modifier.size(20.dp), tint = secondaryColor)
+            Text(file.name, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, maxLines = 1,
+                overflow = TextOverflow.MiddleEllipsis, color = contentColor)
+            if (!file.isDirectory) {
+                Text(Formatter.formatShortFileSize(rememberFileSizeContext(), file.sizeBytes),
+                    style = MaterialTheme.typography.bodySmall, color = secondaryColor)
+            }
+            Icon(if (file.isDirectory) Icons.Outlined.ChevronRight else Icons.Outlined.FileDownload, contentDescription = null,
+                modifier = Modifier.size(18.dp), tint = secondaryColor)
         }
+        HorizontalDivider(Modifier.padding(start = 48.dp, end = 16.dp))
     }
 }

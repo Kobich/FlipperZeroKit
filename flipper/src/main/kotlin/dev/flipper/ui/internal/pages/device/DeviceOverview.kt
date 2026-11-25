@@ -1,7 +1,6 @@
 package dev.flipper.ui.internal.pages.device
 
 import android.content.Context
-import android.content.res.Configuration
 import android.text.format.Formatter
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.HorizontalDivider
@@ -12,11 +11,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import com.flipperdevices.protobuf.FlipperProto
 import dev.flipper.R
@@ -26,7 +23,7 @@ import dev.flipper.api.model.PowerInfo
 import dev.flipper.api.model.StorageInfo
 import dev.flipper.ui.internal.components.InfoPanel
 import dev.flipper.ui.internal.components.InfoRow
-import java.util.Locale
+import dev.flipper.ui.internal.components.rememberFileSizeContext
 
 private enum class DetailsSection { None, Power, All }
 
@@ -39,11 +36,7 @@ internal fun DeviceOverview(
     actions: @Composable (powerExpanded: Boolean, togglePower: () -> Unit) -> Unit = { _, _ -> },
 ) {
     var expanded by rememberSaveable(device.address) { mutableStateOf(DetailsSection.None) }
-    val context = LocalContext.current
-    val sizeFormatContext = remember(context) {
-        val english = Configuration(context.resources.configuration).apply { setLocale(Locale.ENGLISH) }
-        context.createConfigurationContext(english)
-    }
+    val sizeFormatContext = rememberFileSizeContext()
     val overview = details ?: DeviceDetails()
     val card = (overview.sdCard as? DeviceInfoState.Ready)?.data
 
