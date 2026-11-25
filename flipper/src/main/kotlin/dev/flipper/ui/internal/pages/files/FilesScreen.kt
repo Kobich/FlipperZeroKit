@@ -74,20 +74,20 @@ internal fun FilesControls(state: FilesUiState, viewModel: FilesViewModel, actio
     val context = LocalContext.current
     val enabled = state.rpcReady && state.transfer?.active != true
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Файлы", style = MaterialTheme.typography.titleMedium)
-        if (!state.rpcReady) Text("Подключите устройство для работы с файлами.")
+        Text("Files", style = MaterialTheme.typography.titleMedium)
+        if (!state.rpcReady) Text("Connect your Flipper to browse files.")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("/", "/ext", "/int").forEach { path -> OutlinedButton(onClick = { viewModel.open(path) }, enabled = enabled) { Text(path) } }
         }
         Text(state.path, style = MaterialTheme.typography.titleMedium)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = { viewModel.open(state.path.substringBeforeLast('/').ifEmpty { "/" }) }, enabled = enabled && state.path != "/") { Text("Вверх") }
-            TextButton(onClick = viewModel::refresh, enabled = enabled && !state.isLoading) { Text("Обновить") }
+            TextButton(onClick = { viewModel.open(state.path.substringBeforeLast('/').ifEmpty { "/" }) }, enabled = enabled && state.path != "/") { Text("Up") }
+            TextButton(onClick = viewModel::refresh, enabled = enabled && !state.isLoading) { Text("Refresh") }
         }
         state.transfer?.let { transfer -> Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(transfer.title, style = MaterialTheme.typography.titleSmall)
-                Text(transfer.bytes.toString()+" / "+(transfer.total?.toString() ?: "?")+" байт")
+                Text(transfer.bytes.toString()+" / "+(transfer.total?.toString() ?: "?")+" bytes")
                 if (transfer.active) {
                     val total = transfer.total
                     if (total != null && total > 0) {
@@ -95,31 +95,31 @@ internal fun FilesControls(state: FilesUiState, viewModel: FilesViewModel, actio
                         LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
                         Text((progress*100).toInt().toString()+"%")
                     } else LinearProgressIndicator(Modifier.fillMaxWidth())
-                    TextButton(onClick = viewModel::cancelTransfer) { Text("Отменить передачу") }
+                    TextButton(onClick = viewModel::cancelTransfer) { Text("Cancel transfer") }
                 }
                 Text(transfer.message)
             }
         } }
-        OutlinedButton(onClick = actions.choose, enabled = enabled && state.path != "/") { Text("Выбрать файл телефона") }
+        OutlinedButton(onClick = actions.choose, enabled = enabled && state.path != "/") { Text("Choose a file") }
         state.upload?.let { selected ->
-            Text("Источник: "+selected.originalName+" ("+(selected.sizeBytes?.toString() ?: "?")+" байт)")
+            Text("Source: "+selected.originalName+" ("+(selected.sizeBytes?.toString() ?: "?")+" bytes)")
             OutlinedTextField(actions.name, actions.changeName, enabled = enabled, singleLine = true,
-                label = { Text("Имя на Flipper (ASCII)") }, modifier = Modifier.fillMaxWidth())
-            Text("Каталог: "+state.path+" · занятое имя получит (2), (3)…")
-            Button(onClick = actions.upload, enabled = enabled && state.path != "/") { Text("Отправить на Flipper") }
+                label = { Text("Filename on Flipper (ASCII)") }, modifier = Modifier.fillMaxWidth())
+            Text("Folder: "+state.path+" · existing names get a (2), (3), or later suffix")
+            Button(onClick = actions.upload, enabled = enabled && state.path != "/") { Text("Upload to Flipper") }
         }
         if (state.transfer != null || state.error != null) TextButton(onClick = {
             context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Flipper file result",
                 "Device: "+state.deviceAddress+"\nPath: "+state.path+"\nError: "+state.error+"\nTransfer: "+state.transfer))
-        }) { Text("Скопировать результат") }
+        }) { Text("Copy result") }
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         if (deferredCleanup > 0) {
-            Text("Отложена очистка файлов: $deferredCleanup. Она продолжится при доступном соединении.",
+            Text("Files pending cleanup: $deferredCleanup. Cleanup will resume when Flipper is available.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
         }
         if (state.cleanupStatus.isNotBlank()) Text(state.cleanupStatus, style = MaterialTheme.typography.bodySmall)
-        if (state.isLoading) { LinearProgressIndicator(Modifier.fillMaxWidth()); Text("Чтение каталога…") }
-        if (state.rpcReady && !state.isLoading && state.files.isEmpty() && state.error == null) Text("Каталог пуст")
+        if (state.isLoading) { LinearProgressIndicator(Modifier.fillMaxWidth()); Text("Loading folder…") }
+        if (state.rpcReady && !state.isLoading && state.files.isEmpty() && state.error == null) Text("Empty folder")
     }
 }
 
@@ -127,8 +127,8 @@ internal fun FilesControls(state: FilesUiState, viewModel: FilesViewModel, actio
 internal fun FileRow(file: StorageEntry, enabled: Boolean, onClick: () -> Unit) {
     Card(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
         Column(Modifier.padding(16.dp)) {
-            Text((if (file.isDirectory) "Каталог: " else "Файл: ")+file.name, style = MaterialTheme.typography.titleSmall)
-            if (!file.isDirectory) Text(file.sizeBytes.toString()+" байт · скачать")
+            Text((if (file.isDirectory) "Folder: " else "File: ")+file.name, style = MaterialTheme.typography.titleSmall)
+            if (!file.isDirectory) Text(file.sizeBytes.toString()+" bytes · download")
         }
     }
 }

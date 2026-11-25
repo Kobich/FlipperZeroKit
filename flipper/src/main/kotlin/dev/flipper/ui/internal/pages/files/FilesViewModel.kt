@@ -92,7 +92,7 @@ internal class FilesViewModel(private val flipper: Flipper, application: Applica
         val source = local.value.upload ?: return
         if (!available()) return
         if (name.isBlank() || name == "." || name == ".." || name.any { it.code !in 32..126 || it == '/' || it.code == 92 }) {
-            local.update { it.copy(error = "Укажи ASCII-имя без разделителей пути") }; return
+            local.update { it.copy(error = "Enter an ASCII filename without path separators.") }; return
         }
         listing?.cancel()
         local.update { it.copy(isLoading = false, error = null) }

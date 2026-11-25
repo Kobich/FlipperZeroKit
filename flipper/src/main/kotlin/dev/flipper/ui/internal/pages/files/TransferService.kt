@@ -44,7 +44,7 @@ internal class TransferService : Service() {
         private val _active = MutableStateFlow(false)
         val active = _active.asStateFlow()
         fun start(context: Context, manager: TransferManager) {
-            check(pending == null || pending === manager) { "Другая передача уже выполняется" }
+            check(pending == null || pending === manager) { "Another transfer is already in progress" }
             pending = manager
             _active.value = true
             try { ContextCompat.startForegroundService(context, Intent(context, TransferService::class.java)) }
@@ -68,7 +68,7 @@ internal class TransferService : Service() {
         service = this
         val notifications = getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT >= 26) notifications.createNotificationChannel(
-            NotificationChannel(CHANNEL, "Передача файлов Flipper", NotificationManager.IMPORTANCE_LOW))
+            NotificationChannel(CHANNEL, "Flipper file transfers", NotificationManager.IMPORTANCE_LOW))
         try {
             ServiceCompat.startForeground(this, NOTIFICATION, notification(null),
                 if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE else 0)
@@ -103,12 +103,12 @@ internal class TransferService : Service() {
         val total = state?.total
         val percent = if (total != null && total > 0) ((state.bytes.toDouble() / total) * 100).toInt().coerceIn(0, 100) else 0
         val builder = NotificationCompat.Builder(this, CHANNEL).setSmallIcon(R.drawable.flipper_ic_transfer)
-            .setContentTitle(state?.title ?: "Передача файла Flipper")
-            .setContentText(state?.let { it.bytes.toString()+" / "+(it.total?.toString() ?: "?")+" байт · "+it.message } ?: "Подготовка…")
-            .setStyle(NotificationCompat.BigTextStyle().bigText(state?.message ?: "Подготовка…"))
+            .setContentTitle(state?.title ?: "Flipper file transfer")
+            .setContentText(state?.let { it.bytes.toString()+" / "+(it.total?.toString() ?: "?")+" bytes · "+it.message } ?: "Preparing…")
+            .setStyle(NotificationCompat.BigTextStyle().bigText(state?.message ?: "Preparing…"))
             .setOnlyAlertOnce(true).setContentIntent(launch)
         if (state?.active != false) builder.setOngoing(true).setProgress(100, percent, total == null || total == 0L)
-            .addAction(0, "Отменить", cancel)
+            .addAction(0, "Cancel", cancel)
         else builder.setOngoing(false).setAutoCancel(true)
         return builder.build()
     }

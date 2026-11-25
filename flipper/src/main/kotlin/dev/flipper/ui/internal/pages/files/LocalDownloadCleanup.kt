@@ -41,7 +41,7 @@ internal class LocalDownloadCleanup private constructor(private val app: Applica
     @SuppressLint("UseKtx")
     private suspend fun persist(updated: List<Record>) = withContext(Dispatchers.IO) {
         if (!prefs.edit().putStringSet("uris", updated.map { it.addedFlags.toString()+"|"+it.uri }.toSet()).commit())
-            throw IOException("Не удалось сохранить задачу очистки документа")
+            throw IOException("Could not save the document cleanup record")
     }
     suspend fun remember(uri: Uri, flags: Int) = mutex.withLock {
         val updated = records.value.filterNot { it.uri == uri.toString() } + Record(uri.toString(), flags)
@@ -66,6 +66,6 @@ internal class LocalDownloadCleanup private constructor(private val app: Applica
             }
             if (deleted) { forget(uri); removed++ }
         }
-        _status.value = "Очистка незавершённых загрузок: удалено "+removed+", ожидают удаления "+records.value.size
+        _status.value = "Partial downloads removed: "+removed+", pending removal: "+records.value.size
     }
 }

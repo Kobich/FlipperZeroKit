@@ -59,7 +59,7 @@ fun FlipperScreen(flipper: Flipper, modifier: Modifier = Modifier, connectionCon
     }
     LazyColumn(modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         if (!status.isNullOrBlank()) item("connection-status") { Text(status, Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) }
-        if (recovering) item("recovery") { Text("Восстановление соединения и очистка…", Modifier.padding(20.dp)) }
+        if (recovering) item("recovery") { Text("Reconnecting and cleaning up…", Modifier.padding(20.dp)) }
         item("device") { DeviceRoute(device, embedded = true, connectingDevice = connectingDevice) }
         item("file-controls") { FilesControls(state, files, actions, deferredCleanup) }
         items(state.files, key = { state.path+"/"+it.name }) { file ->

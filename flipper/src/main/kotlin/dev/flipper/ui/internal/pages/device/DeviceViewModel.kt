@@ -77,7 +77,7 @@ internal class DeviceViewModel constructor(
         add("RPC: ${flipper.rpcStatus.value}")
         addAll((flipper as? DefaultFlipper)?.recentConnectionEvents().orEmpty())
         val current = details.value
-        add(current.pingMessage ?: "Ручной Ping ещё не запускался")
+        add(current.pingMessage ?: "No manual ping sent")
         val info = current.info
         if (info is DeviceInfoState.Ready) {
             info.data.fields.toSortedMap().forEach { (key, value) -> add("DeviceInfo $key=$value") }
@@ -114,11 +114,11 @@ internal class DeviceViewModel constructor(
     private fun sendPing() {
         if (pingJob?.isActive == true) return
         pingJob = viewModelScope.launch {
-            details.update { it.copy(pingMessage = "Ожидание PingResponse…") }
+            details.update { it.copy(pingMessage = "Waiting for ping reply…") }
             val started = SystemClock.elapsedRealtime()
             try {
                 flipper.ping()
-                details.update { it.copy(pingMessage = "Ping OK: "+(SystemClock.elapsedRealtime()-started)+" мс") }
+                details.update { it.copy(pingMessage = "Ping OK: "+(SystemClock.elapsedRealtime()-started)+" ms") }
             } catch (cancel: CancellationException) { throw cancel }
             catch (error: Exception) { details.update { it.copy(pingMessage = "Ping: "+error.message) } }
         }

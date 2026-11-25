@@ -11,7 +11,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,9 +20,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Bluetooth
+import androidx.compose.material.icons.outlined.LinkOff
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
-import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -33,8 +36,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
@@ -149,7 +156,7 @@ private fun DeviceScreen(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (!embedded) Text(stringResource(R.string.flipper_connection_title), style = MaterialTheme.typography.titleLarge)
-        if (!state.isRpcReady) TextButton(onClick = onCopyDiagnostics) { Text("Скопировать диагностику") }
+        if (!state.isRpcReady) TextButton(onClick = onCopyDiagnostics) { Text(stringResource(R.string.flipper_copy_diagnostics)) }
         val connection = state.connection
         val pendingDevice = when (connection) {
             is BleConnectionState.Pairing -> connection.device
@@ -159,14 +166,10 @@ private fun DeviceScreen(
         }
         when {
             connection is BleConnectionState.Connected && state.isRpcReady -> {
-                DeviceOverview(connection.device, stringResource(R.string.flipper_connected_status), state.details)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Button(onClick = onRefresh, enabled = !state.details.isLoading) {
-                        Text(stringResource(R.string.flipper_refresh_info))
-                    }
-                    TextButton(onClick = sendPing) { Text(stringResource(R.string.flipper_command_ping)) }
-                    TextButton(onClick = onDisconnect) { Text(stringResource(R.string.flipper_disconnect_device)) }
-                    TextButton(onClick = onCopyDiagnostics) { Text("Скопировать диагностику") }
+                DeviceOverview(
+                    connection.device, stringResource(R.string.flipper_connected_status), state.details, onCopyDiagnostics,
+                ) { powerExpanded, togglePower ->
+                    DeviceActions(powerExpanded, !state.details.isLoading, sendPing, togglePower, onRefresh, onDisconnect)
                 }
                 state.details.pingMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             }
@@ -177,7 +180,7 @@ private fun DeviceScreen(
                     else -> stringResource(R.string.flipper_device_connecting)
                 }
                 DeviceOverview(pendingDevice, status)
-                FlipperOutlinedButton(stringResource(R.string.flipper_disconnect_device), onDisconnect)
+                DisconnectButton(onDisconnect, Modifier.align(Alignment.End))
             }
             else -> {
                 if (connection is BleConnectionState.Failed) {
@@ -197,26 +200,26 @@ private fun DeviceScreen(
                 if (enableDenied) {
                     Text(stringResource(R.string.flipper_bluetooth_enable_denied), color = MaterialTheme.colorScheme.error)
                 }
-                SectionTitle("Уже известные устройства")
-                Text("Можно выбрать сопряжённый Flipper без поиска. Метка подключения относится к Android; RPC приложения запускается отдельно.",
+                SectionTitle("Known devices")
+                Text("Select a paired Flipper without scanning. The Android connection badge shows Bluetooth status.",
                     style = MaterialTheme.typography.bodySmall)
-                FlipperOutlinedButton("Обновить подключённые и сопряжённые", onKnownDevices,
+                FlipperOutlinedButton("Refresh known devices", onKnownDevices,
                     enabled = !state.knownDevices.isLoading)
                 if (state.knownDevices.isLoading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 state.knownDevices.failure?.let { Text(failureText(it), color = MaterialTheme.colorScheme.error) }
                 if (state.knownDevices.hasLoaded && !state.knownDevices.isLoading &&
-                    state.knownDevices.failure == null && state.knownDevices.devices.isEmpty()) Text("Сохранённых BLE-устройств и GATT-подключений нет")
+                    state.knownDevices.failure == null && state.knownDevices.devices.isEmpty()) Text("No paired or connected Bluetooth devices")
                 state.knownDevices.devices.forEach { known ->
                     Card(onClick = { onConnect(known.device) }, modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(known.device.name, style = MaterialTheme.typography.titleSmall)
                             Text(known.device.address, style = MaterialTheme.typography.bodySmall)
-                            if (known.isConnectedToSystem) Text("GATT подключён в Android", color = MaterialTheme.colorScheme.primary)
-                            Text(if (known.isBonded) "Сопряжено · нажми для подключения приложения" else "Не сопряжено · может потребоваться подтверждение")
+                            if (known.isConnectedToSystem) Text("Connected in Android", color = MaterialTheme.colorScheme.primary)
+                            Text(if (known.isBonded) "Paired · tap to connect" else "Pairing may require confirmation")
                         }
                     }
                 }
-                SectionTitle("Поиск новых устройств")
+                SectionTitle("Find new devices")
                 if (state.isScanning) {
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                     Text(stringResource(R.string.flipper_scanning))
@@ -253,6 +256,47 @@ private fun DeviceScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun DeviceActions(
+    powerExpanded: Boolean,
+    refreshEnabled: Boolean,
+    onPing: () -> Unit,
+    onTogglePower: () -> Unit,
+    onRefresh: () -> Unit,
+    onDisconnect: () -> Unit,
+) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+            val padding = PaddingValues(horizontal = 8.dp)
+            TextButton(onClick = onPing, contentPadding = padding) {
+                Text(stringResource(R.string.flipper_command_ping))
+            }
+            TextButton(
+                onClick = onTogglePower,
+                contentPadding = padding,
+                modifier = Modifier.semantics { selected = powerExpanded },
+                colors = ButtonDefaults.textButtonColors(
+                    containerColor = if (powerExpanded) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+                ),
+            ) {
+                Text(stringResource(R.string.flipper_power_details_label))
+            }
+        }
+        IconButton(onClick = onRefresh, enabled = refreshEnabled) {
+            Icon(Icons.Outlined.Refresh, contentDescription = stringResource(R.string.flipper_refresh_info))
+        }
+        DisconnectButton(onDisconnect)
+    }
+}
+
+@Composable
+private fun DisconnectButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    IconButton(onClick = onClick, modifier = modifier) {
+        Icon(Icons.Outlined.LinkOff, contentDescription = stringResource(R.string.flipper_disconnect_device),
+            tint = MaterialTheme.colorScheme.error)
     }
 }
 

@@ -74,7 +74,7 @@ internal class ConnectionViewModel(private val flipper: Flipper, application: Ap
                 if (known is KnownDevicesResult.Available && known.devices.none {
                         it.isBonded && it.device.address.equals(device.address, ignoreCase = true)
                     }) {
-                    _status.value = "Сопряжение с ${device.name} отсутствует. Выберите устройство."
+                    _status.value = "${device.name} is no longer paired. Select a device."
                     _connectingDevice.value = null
                     return@launch
                 }
@@ -83,10 +83,10 @@ internal class ConnectionViewModel(private val flipper: Flipper, application: Ap
             for (attempt in pauses.indices) {
                 if ((!foreground && !explicit) || !automatic || !allowed()) break
                 delay(pauses[attempt])
-                _status.value = "Подключение: попытка "+(attempt+1)+" из 3"
+                _status.value = "Connecting, attempt "+(attempt+1)+" of 3"
                 try { flipper.connect(device) }
                 catch (cancel: CancellationException) { throw cancel }
-                catch (error: Exception) { _status.value = "Подключение недоступно: "+error.message; break }
+                catch (error: Exception) { _status.value = "Connection unavailable: "+error.message; break }
                 val result = withTimeoutOrNull(95_000) {
                     combine(flipper.connection, flipper.rpcStatus) { state, rpc -> state to rpc }.first { (state, rpc) ->
                         state.canReconnect() || (state is BleConnectionState.Connected && rpc == RpcStatus.ACTIVE)
@@ -102,7 +102,7 @@ internal class ConnectionViewModel(private val flipper: Flipper, application: Ap
                     failure == BleFailure.BluetoothUnsupported || failure == BleFailure.PairingFailed) break
             }
             exhaustedAt = android.os.SystemClock.elapsedRealtime()
-            _status.value = "Не удалось подключиться. Выберите устройство для ручного повтора."
+            _status.value = "Could not connect. Select a device to try again."
             _connectingDevice.value = null
         }
     }
@@ -131,7 +131,7 @@ internal class ConnectionViewModel(private val flipper: Flipper, application: Ap
     private fun stopAutomatic() {
         automatic = false; prefs.edit { putBoolean("automatic", false) }
         cancelRetry()
-        _status.value = "Автоподключение остановлено пользователем"
+        _status.value = "Auto-connect is off"
     }
     override suspend fun disconnect() { stopAutomatic(); flipper.disconnect() }
 }

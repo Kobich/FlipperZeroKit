@@ -1,6 +1,6 @@
 <resources>
     <string name="app_name">FlipperZeroKit Sample</string>
-    <string name="switch_to_light_theme">Включить светлую тему</string>
-    <string name="switch_to_dark_theme">Включить тёмную тему</string>
+    <string name="switch_to_light_theme">Switch to light theme</string>
+    <string name="switch_to_dark_theme">Switch to dark theme</string>
     <string name="tab_flipper">Flipper</string>
 </resources>

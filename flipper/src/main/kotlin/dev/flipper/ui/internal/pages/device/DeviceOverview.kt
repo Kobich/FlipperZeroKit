@@ -1,5 +1,7 @@
 package dev.flipper.ui.internal.pages.device
 
+import android.content.Context
+import android.content.res.Configuration
 import android.text.format.Formatter
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.HorizontalDivider
@@ -10,6 +12,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -19,14 +22,28 @@ import com.flipperdevices.protobuf.FlipperProto
 import dev.flipper.R
 import dev.flipper.api.model.BleDevice
 import dev.flipper.api.model.FlipperRpcException
+import dev.flipper.api.model.PowerInfo
 import dev.flipper.api.model.StorageInfo
 import dev.flipper.ui.internal.components.InfoPanel
 import dev.flipper.ui.internal.components.InfoRow
+import java.util.Locale
+
+private enum class DetailsSection { None, Power, All }
 
 @Composable
-internal fun DeviceOverview(device: BleDevice, status: String, details: DeviceDetails? = null) {
-    var expanded by rememberSaveable(device.address) { mutableStateOf(false) }
+internal fun DeviceOverview(
+    device: BleDevice,
+    status: String,
+    details: DeviceDetails? = null,
+    onCopyDiagnostics: (() -> Unit)? = null,
+    actions: @Composable (powerExpanded: Boolean, togglePower: () -> Unit) -> Unit = { _, _ -> },
+) {
+    var expanded by rememberSaveable(device.address) { mutableStateOf(DetailsSection.None) }
     val context = LocalContext.current
+    val sizeFormatContext = remember(context) {
+        val english = Configuration(context.resources.configuration).apply { setLocale(Locale.ENGLISH) }
+        context.createConfigurationContext(english)
+    }
     val overview = details ?: DeviceDetails()
     val card = (overview.sdCard as? DeviceInfoState.Ready)?.data
 
@@ -47,8 +64,8 @@ internal fun DeviceOverview(device: BleDevice, status: String, details: DeviceDe
             is DeviceInfoState.Failed -> storageError(sd.error)
             is DeviceInfoState.Ready -> stringResource(
                 R.string.flipper_sd_card_usage,
-                Formatter.formatShortFileSize(context, sd.data.usedBytes),
-                Formatter.formatShortFileSize(context, sd.data.totalBytes),
+                Formatter.formatShortFileSize(sizeFormatContext, sd.data.usedBytes),
+                Formatter.formatShortFileSize(sizeFormatContext, sd.data.totalBytes),
             )
         })
         if (card != null) {
@@ -58,19 +75,27 @@ internal fun DeviceOverview(device: BleDevice, status: String, details: DeviceDe
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
-            InfoRow(stringResource(R.string.flipper_storage_free_label), Formatter.formatShortFileSize(context, card.freeBytes))
+            InfoRow(stringResource(R.string.flipper_storage_free_label), Formatter.formatShortFileSize(sizeFormatContext, card.freeBytes))
         } else if (overview.sdCard == DeviceInfoState.Loading) {
             InfoRow(stringResource(R.string.flipper_storage_free_label), null)
         }
-
-        if (details != null) {
-            TextButton(onClick = { expanded = !expanded }) {
-                Text(stringResource(if (expanded) R.string.flipper_hide_details else R.string.flipper_show_details))
-            }
-        }
     }
 
-    if (expanded && details != null) {
+    actions(expanded == DetailsSection.Power) {
+        expanded = if (expanded == DetailsSection.Power) DetailsSection.None else DetailsSection.Power
+    }
+
+    if (details == null) return
+
+    TextButton(onClick = { expanded = if (expanded == DetailsSection.All) DetailsSection.None else DetailsSection.All }) {
+        Text(stringResource(if (expanded == DetailsSection.All) R.string.flipper_hide_details else R.string.flipper_show_details))
+    }
+
+    if (expanded == DetailsSection.Power) {
+        InfoPanel { PowerInfoFields(details.power) }
+    }
+
+    if (expanded == DetailsSection.All) {
         InfoPanel {
             Text(stringResource(R.string.flipper_device_details_label), style = MaterialTheme.typography.titleSmall)
             InfoRow(stringResource(R.string.flipper_device_address_label), device.address)
@@ -80,18 +105,16 @@ internal fun DeviceOverview(device: BleDevice, status: String, details: DeviceDe
                 is DeviceInfoState.Failed -> Text(deviceInfoError(info.error), color = MaterialTheme.colorScheme.error)
             }
             HorizontalDivider()
-            Text(stringResource(R.string.flipper_power_details_label), style = MaterialTheme.typography.titleSmall)
-            when (val power = details.power) {
-                DeviceInfoState.Loading -> InfoRow(stringResource(R.string.flipper_battery_charge_label), null)
-                is DeviceInfoState.Ready -> RawInfoFields(power.data.fields)
-                is DeviceInfoState.Failed -> Text(stringResource(R.string.flipper_power_info_failed), color = MaterialTheme.colorScheme.error)
-            }
+            PowerInfoFields(details.power)
             HorizontalDivider()
             Text(stringResource(R.string.flipper_sd_card_label), style = MaterialTheme.typography.titleSmall)
             when (val sd = details.sdCard) {
                 DeviceInfoState.Loading -> InfoRow(stringResource(R.string.flipper_storage_total_label), null)
-                is DeviceInfoState.Ready -> CardCapacityFields(sd.data)
+                is DeviceInfoState.Ready -> CardCapacityFields(sizeFormatContext, sd.data)
                 is DeviceInfoState.Failed -> Text(storageError(sd.error))
+            }
+            if (onCopyDiagnostics != null) {
+                TextButton(onClick = onCopyDiagnostics) { Text(stringResource(R.string.flipper_copy_diagnostics)) }
             }
         }
     }
@@ -105,11 +128,20 @@ private fun <T> DeviceInfoState<T>.summaryValue(value: @Composable (T) -> String
 }
 
 @Composable
-private fun CardCapacityFields(card: StorageInfo) {
-    val context = LocalContext.current
+private fun CardCapacityFields(context: Context, card: StorageInfo) {
     InfoRow(stringResource(R.string.flipper_storage_total_label), Formatter.formatFileSize(context, card.totalBytes), "total_space")
     InfoRow(stringResource(R.string.flipper_storage_used_label), Formatter.formatFileSize(context, card.usedBytes))
     InfoRow(stringResource(R.string.flipper_storage_free_label), Formatter.formatFileSize(context, card.freeBytes), "free_space")
+}
+
+@Composable
+private fun PowerInfoFields(power: DeviceInfoState<PowerInfo>) {
+    Text(stringResource(R.string.flipper_power_details_label), style = MaterialTheme.typography.titleSmall)
+    when (power) {
+        DeviceInfoState.Loading -> InfoRow(stringResource(R.string.flipper_battery_charge_label), null)
+        is DeviceInfoState.Ready -> RawInfoFields(power.data.fields)
+        is DeviceInfoState.Failed -> Text(stringResource(R.string.flipper_power_info_failed), color = MaterialTheme.colorScheme.error)
+    }
 }
 
 @Composable
