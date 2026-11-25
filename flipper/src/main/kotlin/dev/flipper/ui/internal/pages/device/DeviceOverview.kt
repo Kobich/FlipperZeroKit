@@ -2,19 +2,31 @@ package dev.flipper.ui.internal.pages.device
 
 import android.content.Context
 import android.text.format.Formatter
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import com.flipperdevices.protobuf.FlipperProto
 import dev.flipper.R
 import dev.flipper.api.model.BleDevice
@@ -25,24 +37,27 @@ import dev.flipper.ui.internal.components.InfoPanel
 import dev.flipper.ui.internal.components.InfoRow
 import dev.flipper.ui.internal.components.rememberFileSizeContext
 
-private enum class DetailsSection { None, Power, All }
-
 @Composable
 internal fun DeviceOverview(
     device: BleDevice,
     status: String,
     details: DeviceDetails? = null,
-    onCopyDiagnostics: (() -> Unit)? = null,
-    actions: @Composable (powerExpanded: Boolean, togglePower: () -> Unit) -> Unit = { _, _ -> },
+    onShowAllInfo: (() -> Unit)? = null,
+    actions: @Composable () -> Unit,
 ) {
-    var expanded by rememberSaveable(device.address) { mutableStateOf(DetailsSection.None) }
     val sizeFormatContext = rememberFileSizeContext()
     val overview = details ?: DeviceDetails()
     val card = (overview.sdCard as? DeviceInfoState.Ready)?.data
 
     InfoPanel {
-        Text(device.name, style = MaterialTheme.typography.titleMedium)
-        Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(device.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+            }
+            actions()
+        }
+        overview.pingMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         InfoRow(stringResource(R.string.flipper_firmware_label), overview.info.summaryValue { it.firmwareVersion })
         InfoRow(stringResource(R.string.flipper_build_date_label), overview.info.summaryValue { it.firmwareBuildDate })
         InfoRow(stringResource(R.string.flipper_battery_charge_label), overview.power.summaryValue { power ->
@@ -72,43 +87,65 @@ internal fun DeviceOverview(
         } else if (overview.sdCard == DeviceInfoState.Loading) {
             InfoRow(stringResource(R.string.flipper_storage_free_label), null)
         }
-    }
-
-    actions(expanded == DetailsSection.Power) {
-        expanded = if (expanded == DetailsSection.Power) DetailsSection.None else DetailsSection.Power
-    }
-
-    if (details == null) return
-
-    TextButton(onClick = { expanded = if (expanded == DetailsSection.All) DetailsSection.None else DetailsSection.All }) {
-        Text(stringResource(if (expanded == DetailsSection.All) R.string.flipper_hide_details else R.string.flipper_show_details))
-    }
-
-    if (expanded == DetailsSection.Power) {
-        InfoPanel { PowerInfoFields(details.power) }
-    }
-
-    if (expanded == DetailsSection.All) {
-        InfoPanel {
-            Text(stringResource(R.string.flipper_device_details_label), style = MaterialTheme.typography.titleSmall)
-            InfoRow(stringResource(R.string.flipper_device_address_label), device.address)
-            when (val info = details.info) {
-                DeviceInfoState.Loading -> InfoRow(stringResource(R.string.flipper_device_info_title), null)
-                is DeviceInfoState.Ready -> RawInfoFields(info.data.fields)
-                is DeviceInfoState.Failed -> Text(deviceInfoError(info.error), color = MaterialTheme.colorScheme.error)
+        if (onShowAllInfo != null) {
+            TextButton(onClick = onShowAllInfo, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.flipper_all_info), Modifier.weight(1f))
+                Icon(Icons.Outlined.ChevronRight, contentDescription = null)
             }
-            HorizontalDivider()
-            PowerInfoFields(details.power)
-            HorizontalDivider()
-            Text(stringResource(R.string.flipper_sd_card_label), style = MaterialTheme.typography.titleSmall)
-            when (val sd = details.sdCard) {
-                DeviceInfoState.Loading -> InfoRow(stringResource(R.string.flipper_storage_total_label), null)
-                is DeviceInfoState.Ready -> CardCapacityFields(sizeFormatContext, sd.data)
-                is DeviceInfoState.Failed -> Text(storageError(sd.error))
+        }
+    }
+}
+
+@Composable
+internal fun DeviceDetailsPage(
+    device: BleDevice,
+    details: DeviceDetails,
+    onBack: () -> Unit,
+    onCopyDiagnostics: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val sizeFormatContext = rememberFileSizeContext()
+    Column(modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = stringResource(R.string.flipper_back_to_overview))
             }
-            if (onCopyDiagnostics != null) {
-                TextButton(onClick = onCopyDiagnostics) { Text(stringResource(R.string.flipper_copy_diagnostics)) }
+            Column(Modifier.weight(1f)) {
+                Text(stringResource(R.string.flipper_all_info), style = MaterialTheme.typography.titleLarge)
+                Text(device.name, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
+            IconButton(onClick = onCopyDiagnostics) {
+                Icon(Icons.Outlined.ContentCopy, contentDescription = stringResource(R.string.flipper_copy_diagnostics))
+            }
+        }
+        HorizontalDivider()
+        Column(
+            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            DeviceDetailsPanels(device.address, details, sizeFormatContext)
+        }
+    }
+}
+
+@Composable
+private fun DeviceDetailsPanels(address: String, details: DeviceDetails, sizeFormatContext: Context) {
+    InfoPanel {
+        Text(stringResource(R.string.flipper_device_details_label), style = MaterialTheme.typography.titleSmall)
+        InfoRow(stringResource(R.string.flipper_device_address_label), address)
+        when (val info = details.info) {
+            DeviceInfoState.Loading -> InfoRow(stringResource(R.string.flipper_device_info_title), null)
+            is DeviceInfoState.Ready -> RawInfoFields(info.data.fields)
+            is DeviceInfoState.Failed -> Text(deviceInfoError(info.error), color = MaterialTheme.colorScheme.error)
+        }
+    }
+    InfoPanel { PowerInfoFields(details.power) }
+    InfoPanel {
+        Text(stringResource(R.string.flipper_sd_card_label), style = MaterialTheme.typography.titleSmall)
+        when (val sd = details.sdCard) {
+            DeviceInfoState.Loading -> InfoRow(stringResource(R.string.flipper_storage_total_label), null)
+            is DeviceInfoState.Ready -> CardCapacityFields(sizeFormatContext, sd.data)
+            is DeviceInfoState.Failed -> Text(storageError(sd.error))
         }
     }
 }

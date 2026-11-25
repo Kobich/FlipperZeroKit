@@ -1,14 +1,19 @@
 <resources>
-    <string name="flipper_connection_title">Flipper Zero</string>
-    <string name="flipper_connection_intro">Choose a paired Flipper or scan for a new device.</string>
-    <string name="flipper_connect_device">Scan for devices</string>
+    <string name="flipper_devices">Devices</string>
+    <string name="flipper_scan">Scan</string>
+    <string name="flipper_known_devices">Known</string>
+    <string name="flipper_nearby_devices">Nearby</string>
+    <string name="flipper_refresh_known_devices">Refresh known devices</string>
+    <string name="flipper_device_paired">Paired</string>
+    <string name="flipper_android_connected">Android connected</string>
+    <string name="flipper_show_more_devices">Show %1$d more</string>
+    <string name="flipper_show_fewer_devices">Show fewer</string>
     <string name="flipper_disconnect_device">Disconnect</string>
     <string name="flipper_refresh_info">Refresh device info</string>
     <string name="flipper_stop_scan">Stop scan</string>
-    <string name="flipper_scan_again">Scan again</string>
-    <string name="flipper_scanning">Scanning for Bluetooth devices…</string>
-    <string name="flipper_available_devices">Discovered devices</string>
-    <string name="flipper_no_devices_yet">No devices found yet. Check that Bluetooth is enabled on your Flipper.</string>
+    <string name="flipper_scanning">Scanning nearby…</string>
+    <string name="flipper_no_devices_yet">No new devices found</string>
+    <string name="flipper_no_known_devices">Tap Scan to find a device.</string>
     <string name="flipper_device_connecting">Connecting over Bluetooth…</string>
     <string name="flipper_device_pairing">Waiting for pairing…</string>
     <string name="flipper_connected_status">RPC connected</string>
@@ -30,8 +35,8 @@
     <string name="flipper_device_details_label">Device and firmware</string>
     <string name="flipper_power_details_label">Power Info</string>
     <string name="flipper_power_info_failed">Could not read power info.</string>
-    <string name="flipper_show_details">All details</string>
-    <string name="flipper_hide_details">Hide details</string>
+    <string name="flipper_all_info">All info</string>
+    <string name="flipper_back_to_overview">Back to overview</string>
     <string name="flipper_hardware_label">Hardware revision</string>
     <string name="flipper_command_ping">Ping</string>
     <string name="flipper_loading_info">Loading device info…</string>

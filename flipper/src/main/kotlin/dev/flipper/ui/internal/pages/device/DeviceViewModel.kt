@@ -87,6 +87,7 @@ internal class DeviceViewModel constructor(
             power.data.fields.toSortedMap().forEach { (key, value) -> add("PowerInfo $key=$value") }
         } else add("PowerInfo: $power")
         add("SD card: ${current.sdCard}")
+        add("Known devices: ${knownDevices.value}")
     }
 
     private fun refreshKnownDevices() {
