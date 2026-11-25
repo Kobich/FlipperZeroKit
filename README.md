@@ -14,7 +14,7 @@
 В библиотеке доступны getDeviceInfo, getPowerInfo, ping, listFiles, downloadFile, uploadFile и raw RPC. Внутренний RpcClient маршрутизирует ответы по command_id; файловые серии передаются потоком. В версии 1.4 добавлены автонумерация имён, очистка частичных файлов, ограниченный reconnect, foreground-передача и общий экран с блоками. [Таблица принятых решений](docs/TASK.md#7-решения-пользователя-и-выбранная-реализация--24112026). Физическая приёмка новых правил ещё предстоит.
 Пользователь сообщил о первом успешном прогоне на Android 16 и отдельно подтвердил скачивание. Отправку пока не проверял; autoreconnect и ошибки требуют отдельного прогона. Статус и ближайшая работа — [ROADMAP.md](docs/ROADMAP.md), доказательства — [VALIDATION.md](docs/VALIDATION.md).
 
-**Как сразу проверить:** [скачать APK 1.6](artifacts/FlipperZeroKit-debug.apk?raw=true) и открыть [46 тестов с шагами, крайними случаями и ограничениями](docs/PROTOTYPE.md). Контрольные файлы — test-data/manual, архив — artifacts/flipper-test-files.zip.
+**Как сразу проверить:** [скачать APK 1.7](artifacts/FlipperZeroKit-debug.apk?raw=true) и открыть [46 тестов с шагами, крайними случаями и ограничениями](docs/PROTOTYPE.md). Контрольные файлы — test-data/manual, архив — artifacts/flipper-test-files.zip.
 
 API и встраивание UI: [flipper/README.md](flipper/README.md). Приложение-хост подключает одну библиотеку :flipper и владеет клиентом/внешним нижним баром.
 
