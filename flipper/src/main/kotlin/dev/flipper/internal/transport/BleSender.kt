@@ -65,7 +65,10 @@ internal class BleSender(
                     currentCoroutineContext().ensureActive()
 
                     // wait for flow control credits
-                    val available = awaitAvailableBytes(gatt) ?: return@withLock BleFailure.RPCError
+                    val available = awaitAvailableBytes(gatt) ?: run {
+                        if (offset > 0) onWriteFail(gatt, "Flow control stopped inside RX frame at $offset bytes")
+                        return@withLock BleFailure.RPCError
+                    }
 
                     // calculate chunk size
                     val chunkSize = minOf(

@@ -41,7 +41,7 @@ internal class RemoteUpload(
     suspend fun execute(deviceAddress: String, path: String, source: InputStream, sizeBytes: Long?, timeoutMillis: Long,
         onProgress: (TransferProgress) -> Unit): TransferResult {
         var finalPath = freeName(path, send)
-        var finalCleanup: PendingFileCleanup? = null
+        var publishing = false
         val tempPath = path.substringBeforeLast('/') + "/.flipper-transfer-" + UUID.randomUUID() + ".part"
         val cleanup = PendingFileCleanup(deviceAddress, tempPath)
         remember(cleanup) // Persist ownership before the first byte can reach the device.
@@ -58,27 +58,27 @@ internal class RemoteUpload(
             }
             if (sizeBytes != null && bytes != sizeBytes) throw IOException("Source size changed during upload")
             val localMd5 = digest.hex()
-            if (localMd5 != rpcClient.md5(tempPath, 0L, send)) throw IOException("MD5 mismatch after upload")
+            if (localMd5 != rpcClient.md5(tempPath, finalizationTimeout(bytes), send)) throw IOException("MD5 mismatch after upload")
             while (true) {
                 finalPath = freeName(path, send)
-                finalCleanup = PendingFileCleanup(deviceAddress, finalPath)
-                remember(finalCleanup)
-                try { rpcClient.renameFile(tempPath, finalPath, send); break }
+                // Stat is not ownership. Never journal/delete the human-readable destination.
+                publishing = true
+                try { rpcClient.renameFile(tempPath, finalPath, finalizationTimeout(bytes), send); break }
                 catch (error: FlipperRpcException) {
                     if (error.statusCode != FlipperProto.CommandStatus.ERROR_STORAGE_EXIST_VALUE) throw error
-                    finalCleanup?.let { forget(it) }
-                    finalCleanup = null
                 }
             }
-            if (localMd5 != rpcClient.md5(finalPath, 0L, send)) throw IOException("MD5 mismatch after finalizing upload")
+            if (localMd5 != rpcClient.md5(finalPath, finalizationTimeout(bytes), send)) throw IOException("MD5 mismatch after finalizing upload")
             withContext(NonCancellable) {
                 forget(cleanup)
-                finalCleanup?.let { forget(it) }
             }
             TransferResult(bytes, localMd5, finalPath)
         } catch (error: Exception) {
-            // Delete resets firmware's unfinished write and removes only our UUID temp file.
+            // A failed Rename may have partially created finalPath. Its ownership is ambiguous;
+            // leave it for inspection rather than risk deleting another writer's file.
             withContext(NonCancellable) { recover() }
+            if (publishing && error !is kotlinx.coroutines.CancellationException)
+                throw IOException("Finalization failed. Inspect $finalPath; it was not auto-deleted. ${error.message}", error)
             throw error
         }
     }

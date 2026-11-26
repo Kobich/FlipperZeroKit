@@ -25,6 +25,7 @@ class TransferPolicyTest {
         var corruptFinal = false
         var failJournal = false
         var writes = 0
+        var competingRenameFailure = false
         fun md5(bytes: ByteArray): String = MessageDigest.getInstance("MD5").digest(bytes)
             .joinToString("") { "%02x".format(it.toInt() and 255) }
         suspend fun send(request: FlipperProto.Main): BleFailure? {
@@ -49,7 +50,13 @@ class TransferPolicyTest {
                     .setMd5Sum(md5(checkNotNull(files[request.storageMd5SumRequest.path]))))
                 request.hasStorageRenameRequest() -> {
                     val rename = request.storageRenameRequest
-                    assertTrue(journal.any { it.path == rename.newPath })
+                    assertFalse(journal.any { it.path == rename.newPath })
+                    if (competingRenameFailure) {
+                        files[rename.newPath] = byteArrayOf(99)
+                        reply.setCommandStatus(FlipperProto.CommandStatus.ERROR_STORAGE_INTERNAL)
+                        client.onMessage(reply.build())
+                        return null
+                    }
                     assertFalse(files.containsKey(rename.newPath))
                     val bytes = checkNotNull(files.remove(rename.oldPath))
                     files[rename.newPath] = if (corruptFinal) bytes + byteArrayOf(7) else bytes
@@ -100,13 +107,13 @@ class TransferPolicyTest {
         assertTrue(device.journal.isEmpty())
     }
 
-    @Test fun failedFinalCopyIsNotReportedAsSuccessAndIsCleaned() = runBlocking<Unit> {
+    @Test fun failedFinalCopyIsNotReportedAsSuccessAndIsLeftForInspection() = runBlocking<Unit> {
         val device = Device().apply { corruptFinal = true }
         try {
             device.workflow().execute("A", "/ext/a.bin", ByteArrayInputStream(byteArrayOf(1,2,3)), 3, 0) { }
             fail("Expected checksum failure")
         } catch (error: IOException) { assertTrue(error.message.orEmpty().contains("MD5")) }
-        assertTrue(device.files.isEmpty())
+        assertEquals(setOf("/ext/a.bin"), device.files.keys)
         assertTrue(device.journal.isEmpty())
     }
 
@@ -187,6 +194,56 @@ class TransferPolicyTest {
             client.onMessage(FlipperProto.Main.newBuilder().setCommandId(request.commandId)
                 .setEmpty(FlipperProto.Empty.getDefaultInstance()).build()); null
         }
+    }
+
+    @Test fun failedRenameNeverDeletesCompetingDestination() = runBlocking<Unit> {
+        val device = Device().apply { competingRenameFailure = true }
+        try {
+            device.workflow().execute("A", "/ext/a.bin", ByteArrayInputStream(byteArrayOf(1)), 1, 0) { }
+            fail("Expected failed rename")
+        } catch (_: IOException) { }
+        assertArrayEquals(byteArrayOf(99), device.files["/ext/a.bin"])
+        assertEquals(setOf("/ext/a.bin"), device.files.keys)
+        assertTrue(device.journal.isEmpty())
+    }
+
+    @Test fun stalledChunkConsumerIsCanceledByWatchdog() = runBlocking<Unit> {
+        var id = 0
+        val client = RpcClient(idleTimeoutMillis = 50) { ++id }
+        kotlinx.coroutines.withTimeout(2_000) {
+            try {
+                client.readFile("/ext/a", 0, { request ->
+                    client.onMessage(FlipperProto.Main.newBuilder().setCommandId(request.commandId)
+                        .setStorageReadResponse(StorageProto.ReadResponse.newBuilder().setFile(StorageProto.File.newBuilder()
+                            .setData(ByteString.copyFromUtf8("x")))).build())
+                    null
+                }) { kotlinx.coroutines.awaitCancellation() }
+                fail("Expected watchdog failure")
+            } catch (error: FlipperRpcException) { assertEquals(FlipperRpcException.Reason.TIMEOUT, error.reason) }
+        }
+        client.ping(500) { request ->
+            client.onMessage(FlipperProto.Main.newBuilder().setCommandId(request.commandId)
+                .setSystemPingResponse(com.flipperdevices.protobuf.system.SystemProto.PingResponse.getDefaultInstance()).build())
+            null
+        }
+    }
+
+    @Test fun missingFinalizationRepliesHaveDeadlines() = runBlocking<Unit> {
+        var id = 0
+        val client = RpcClient { ++id }
+        kotlinx.coroutines.withTimeout(2_000) {
+            try { client.md5("/ext/a", 50) { null }; fail("Expected MD5 timeout") }
+            catch (error: FlipperRpcException) { assertEquals(FlipperRpcException.Reason.TIMEOUT, error.reason) }
+            try { client.renameFile("/ext/t", "/ext/a", 50) { null }; fail("Expected rename timeout") }
+            catch (error: FlipperRpcException) { assertEquals(FlipperRpcException.Reason.TIMEOUT, error.reason) }
+        }
+    }
+
+    @Test fun legacyFinalPathsAreNeverEligibleForAutomaticDeletion() {
+        assertFalse(isOwnedUploadTemp("/ext/a.bin"))
+        assertFalse(isOwnedUploadTemp("/ext/.flipper-transfer-hello.part"))
+        assertTrue(isOwnedUploadTemp("/ext/.flipper-transfer-550e8400-e29b-41d4-a716-446655440000.part"))
+        assertFalse(isOwnedUploadTemp("/ext/../.flipper-transfer-550e8400-e29b-41d4-a716-446655440000.part"))
     }
 
     @Test fun suffixesPreserveLastExtensionAndHiddenNames() {

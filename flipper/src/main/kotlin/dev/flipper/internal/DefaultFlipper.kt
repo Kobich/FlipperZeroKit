@@ -37,6 +37,9 @@ import dev.flipper.internal.transport.BleReceiver
 import dev.flipper.internal.transport.BleSender
 import dev.flipper.internal.util.toInt
 import java.nio.ByteOrder
+import dev.flipper.internal.rpc.finalizationTimeout
+import dev.flipper.internal.rpc.isOwnedUploadTemp
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
@@ -635,11 +638,14 @@ internal class DefaultFlipper(
             (path == "/" || !path.endsWith('/'))) { "Use an absolute ASCII path without ./ or ../ segments" }
     }
 
-    override suspend fun listFiles(path: String, timeoutMillis: Long): List<StorageEntry> =
+    override suspend fun listFiles(path: String, timeoutMillis: Long, expectedDeviceAddress: String?): List<StorageEntry> =
         withContext(Dispatchers.Main.immediate) {
             checkPath(path)
             storageMutex.withLock {
                 val gatt = requireRpcGatt()
+                val address = (connection.value as? BleConnectionState.Connected)?.device?.address
+                if (expectedDeviceAddress != null && !expectedDeviceAddress.equals(address, ignoreCase = true))
+                    throw IOException("The connected Flipper changed. Refresh the file list.")
                 rpcClient.listFiles(path, timeoutMillis) { sendRpcMessage(it, gatt) }
             }
         }
@@ -664,7 +670,7 @@ internal class DefaultFlipper(
     }
 
     private suspend fun cleanupForGatt(gatt: BluetoothGatt, address: String) {
-        for (item in _cleanup.value.filter { it.deviceAddress.equals(address, ignoreCase = true) }) {
+        for (item in _cleanup.value.filter { it.deviceAddress.equals(address, ignoreCase = true) && isOwnedUploadTemp(it.path) }) {
             rpcClient.deleteFile(item.path) { sendRpcMessage(it, gatt) }
             forgetCleanup(item)
         }
@@ -707,13 +713,15 @@ internal class DefaultFlipper(
 
     private fun MessageDigest.hex(): String = digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
-    override suspend fun downloadFile(path: String, destination: OutputStream, timeoutMillis: Long,
+    override suspend fun downloadFile(path: String, destination: OutputStream, timeoutMillis: Long, expectedDeviceAddress: String?,
         onProgress: (TransferProgress) -> Unit): TransferResult = withContext(Dispatchers.Main.immediate) {
         checkPath(path)
         require(timeoutMillis >= 0)
         storageMutex.withLock {
             val gatt = requireRpcGatt()
             val device = (connection.value as BleConnectionState.Connected).device
+            if (expectedDeviceAddress != null && !device.address.equals(expectedDeviceAddress, ignoreCase = true))
+                throw IOException("The connected Flipper changed. Select the file again.")
             val choice = connectionChoice
             val send: suspend (FlipperProto.Main) -> BleFailure? = { sendRpcMessage(it, gatt) }
             val file = rpcClient.stat(path, 30_000L, send)
@@ -723,15 +731,15 @@ internal class DefaultFlipper(
             try {
                 onProgress(TransferProgress(0, file.sizeBytes))
                 rpcClient.readFile(path, timeoutMillis, send) { chunk ->
-                    withContext(Dispatchers.IO) { destination.write(chunk); digest.update(chunk) }
+                    runInterruptible(Dispatchers.IO) { destination.write(chunk); digest.update(chunk) }
                     bytes += chunk.size
                     if (bytes > file.sizeBytes) throw IOException("File grew during download")
                     onProgress(TransferProgress(bytes, file.sizeBytes))
                 }
-                withContext(Dispatchers.IO) { destination.flush() }
+                runInterruptible(Dispatchers.IO) { destination.flush() }
                 if (bytes != file.sizeBytes) throw IOException("Size mismatch: expected "+file.sizeBytes+", got "+bytes)
                 val localMd5 = digest.hex()
-                if (localMd5 != rpcClient.md5(path, 0L, send)) throw IOException("MD5 mismatch after download")
+                if (localMd5 != rpcClient.md5(path, finalizationTimeout(file.sizeBytes), send)) throw IOException("MD5 mismatch after download")
                 TransferResult(bytes, localMd5, path)
             } catch (error: Exception) {
                 recoverAfterTransfer(gatt, device, choice, reset = true)
@@ -740,13 +748,15 @@ internal class DefaultFlipper(
         }
     }
 
-    override suspend fun uploadFile(path: String, source: InputStream, sizeBytes: Long?, timeoutMillis: Long,
+    override suspend fun uploadFile(path: String, source: InputStream, sizeBytes: Long?, timeoutMillis: Long, expectedDeviceAddress: String?,
         onProgress: (TransferProgress) -> Unit): TransferResult = withContext(Dispatchers.Main.immediate) {
         checkPath(path)
         require(path != "/" && timeoutMillis >= 0 && (sizeBytes == null || sizeBytes >= 0))
         storageMutex.withLock {
             val gatt = requireRpcGatt()
             val device = (connection.value as BleConnectionState.Connected).device
+            if (expectedDeviceAddress != null && !device.address.equals(expectedDeviceAddress, ignoreCase = true))
+                throw IOException("The connected Flipper changed. Select the file again.")
             val choice = connectionChoice
             val send: suspend (FlipperProto.Main) -> BleFailure? = { sendRpcMessage(it, gatt) }
             dev.flipper.internal.rpc.RemoteUpload(rpcClient, send,

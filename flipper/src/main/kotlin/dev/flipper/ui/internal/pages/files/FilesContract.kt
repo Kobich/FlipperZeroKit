@@ -12,6 +12,7 @@ internal data class FilesUiState(
     val rpcReady: Boolean = false,
     val path: String = "/ext",
     val isLoading: Boolean = false,
+    val hasLoaded: Boolean = false,
     val files: List<StorageEntry> = emptyList(),
     val error: String? = null,
     val cleanupStatus: String = "",

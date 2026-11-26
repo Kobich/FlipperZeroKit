@@ -60,9 +60,8 @@ internal class RpcClient(private val idleTimeoutMillis: Long = 60_000L, private 
                         while (isActive) {
                             delay(minOf(1_000L, idleTimeoutMillis))
                             if ((System.nanoTime() - response.activityNanos) / 1_000_000 >= idleTimeoutMillis) {
-                                response.failure.completeExceptionally(FlipperRpcException(Reason.TIMEOUT,
-                                    "RPC made no progress for $idleTimeoutMillis ms", commandId = id))
-                                break
+                                throw FlipperRpcException(Reason.TIMEOUT,
+                                    "RPC made no progress for $idleTimeoutMillis ms", commandId = id)
                             }
                         }
                     } else null
@@ -229,8 +228,8 @@ internal class RpcClient(private val idleTimeoutMillis: Long = 60_000L, private 
         }) { expect(it, it.hasEmpty() && !it.hasNext) }
     }
 
-    suspend fun renameFile(from: String, to: String, send: suspend (FlipperProto.Main) -> BleFailure?) {
-        exchange(0, { id -> sendChecked(FlipperProto.Main.newBuilder().setCommandId(id)
+    suspend fun renameFile(from: String, to: String, timeoutMillis: Long = 120_000L, send: suspend (FlipperProto.Main) -> BleFailure?) {
+        exchange(timeoutMillis, { id -> sendChecked(FlipperProto.Main.newBuilder().setCommandId(id)
             .setStorageRenameRequest(StorageProto.RenameRequest.newBuilder().setOldPath(from).setNewPath(to)).build(), send)
         }, allowIdle = true) { expect(it, it.hasEmpty() && !it.hasNext) }
     }

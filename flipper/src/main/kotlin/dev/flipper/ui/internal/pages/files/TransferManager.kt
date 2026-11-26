@@ -121,13 +121,13 @@ internal class TransferManager private constructor(private val app: Application)
         } }
     }
 
-    fun upload(client: Flipper, target: String, source: SelectedUpload) {
+    fun upload(client: Flipper, target: String, source: SelectedUpload, expectedDevice: String?) {
         start(client, "Uploading $target", source.sizeBytes) {
             try {
                 val result = withUri(source.uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) {
                     withContext(Dispatchers.IO) {
                         val input = resolver.openInputStream(source.uri) ?: throw IOException("Could not open the source file")
-                        input.use { stream -> client.uploadFile(target, stream, source.sizeBytes) { progress ->
+                        input.use { stream -> client.uploadFile(target, stream, source.sizeBytes, expectedDeviceAddress = expectedDevice ?: throw IOException("Select a connected Flipper")) { progress ->
                             _state.update { it?.copy(bytes = progress.bytesTransferred, total = progress.totalBytes,
                                 message = "Uploading, then verifying and choosing an available filename") }
                         } }
@@ -135,12 +135,12 @@ internal class TransferManager private constructor(private val app: Application)
                 }
                 finish("Uploaded: "+result.path+"\nMD5: "+result.md5, true)
             } catch (cancel: CancellationException) {
-                finish(if (client.pendingFileCleanup.value.isEmpty()) "Canceled. The partial file was removed."
+                finish(if (client.pendingFileCleanup.value.isEmpty()) "Canceled. Temporary files were cleaned. If finalization had started, inspect $target."
                     else "Canceled. File cleanup will resume when Flipper reconnects.")
                 throw cancel
             } catch (error: Exception) {
                 finish("Transfer failed: "+error.message+if (client.pendingFileCleanup.value.isEmpty())
-                    "\nAny partial files were removed."
+                    "\nTemporary upload files were cleaned. If finalization failed, inspect the destination file."
                     else "\nCleanup will resume when Flipper reconnects.")
             }
         }
@@ -160,7 +160,7 @@ internal class TransferManager private constructor(private val app: Application)
                     localCleanup.remember(destination, added)
                     withContext(Dispatchers.IO) {
                         val output = resolver.openOutputStream(destination, "w") ?: throw IOException("Could not open the destination file")
-                        output.use { stream -> client.downloadFile(path, stream) { progress ->
+                        output.use { stream -> client.downloadFile(path, stream, expectedDeviceAddress = expectedDevice) { progress ->
                             _state.update { it?.copy(bytes = progress.bytesTransferred, total = progress.totalBytes,
                                 message = "Downloading, then verifying MD5") }
                         } }

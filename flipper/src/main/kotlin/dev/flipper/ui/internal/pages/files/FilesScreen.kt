@@ -77,11 +77,13 @@ internal fun rememberFilesActions(viewModel: FilesViewModel, state: FilesUiState
     var downloadDevice by rememberSaveable { mutableStateOf<String?>(null) }
     var downloadUri by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingUpload by rememberSaveable { mutableStateOf(false) }
+    var uploadTarget by rememberSaveable { mutableStateOf("") }
+    var uploadDevice by rememberSaveable { mutableStateOf<String?>(null) }
     var uploadName by rememberSaveable(state.upload?.uri?.toString()) {
         mutableStateOf(state.upload?.originalName?.map { if (it.code in 32..126 && it != '/' && it.code != 92) it else '_' }?.joinToString("") ?: "upload.bin")
     }
     val startPending: () -> Unit = {
-        if (pendingUpload) viewModel.upload(uploadName)
+        if (pendingUpload) viewModel.upload(uploadTarget, uploadDevice)
         else if (downloadUri != null && downloadPath != null)
             viewModel.download(checkNotNull(downloadPath), checkNotNull(downloadUri).toUri(), downloadDevice)
         pendingUpload = false; downloadUri = null; downloadPath = null; downloadDevice = null
@@ -101,7 +103,11 @@ internal fun rememberFilesActions(viewModel: FilesViewModel, state: FilesUiState
         downloadPath = state.path.trimEnd('/')+"/"+file.name
         downloadDevice = state.deviceAddress
         save.launch(file.name)
-    }, upload = { pendingUpload = true; requestNotificationAndStart() }, name = uploadName, changeName = { uploadName = it })
+    }, upload = {
+        uploadTarget = state.path.trimEnd('/')+"/"+uploadName
+        uploadDevice = state.deviceAddress
+        pendingUpload = true; requestNotificationAndStart()
+    }, name = uploadName, changeName = { uploadName = it })
 }
 
 @Composable
@@ -133,7 +139,7 @@ internal fun FilesControls(state: FilesUiState, viewModel: FilesViewModel, actio
         }
         if (state.cleanupStatus.isNotBlank()) Text(state.cleanupStatus, style = MaterialTheme.typography.bodySmall)
         if (state.isLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
-        if (state.rpcReady && !state.isLoading && state.files.isEmpty() && state.error == null) {
+        if (state.rpcReady && state.hasLoaded && !state.isLoading && state.files.isEmpty() && state.error == null) {
             Text(stringResource(R.string.flipper_files_empty), style = MaterialTheme.typography.bodySmall)
         }
     }
@@ -276,8 +282,8 @@ internal fun FilesPage(state: FilesUiState, viewModel: FilesViewModel, actions: 
             }
             Text(stringResource(R.string.flipper_files_title), style = MaterialTheme.typography.titleLarge)
         }
+        FilesControls(state, viewModel, actions, deferredCleanup)
         LazyColumn(Modifier.weight(1f), state = listState) {
-            item("controls") { FilesControls(state, viewModel, actions, deferredCleanup) }
             items(state.files, key = { state.path + "/" + it.name }) { file ->
                 FileRow(file, state.rpcReady && state.transfer?.active != true) {
                     if (file.isDirectory) viewModel.open(state.path.trimEnd('/') + "/" + file.name) else actions.download(file)

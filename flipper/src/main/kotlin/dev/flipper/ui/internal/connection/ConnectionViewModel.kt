@@ -64,7 +64,11 @@ internal class ConnectionViewModel(private val flipper: Flipper, application: Ap
     }
 
     private fun schedule(device: BleDevice? = remembered(), explicit: Boolean = false) {
-        if (device == null || retryJob?.isActive == true || !allowed() || flipper.isRecovering.value) return
+        if (device == null || retryJob?.isActive == true || flipper.isRecovering.value) return
+        if (!allowed()) {
+            if (explicit) _status.value = "Bluetooth permission is missing. Grant Nearby devices access in Android settings."
+            return
+        }
         val now = android.os.SystemClock.elapsedRealtime()
         if (!explicit && exhaustedAt != Long.MIN_VALUE && now - exhaustedAt < 60_000) return
         _connectingDevice.value = device

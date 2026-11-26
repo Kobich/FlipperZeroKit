@@ -28,6 +28,7 @@ internal class FilesViewModel(private val flipper: Flipper, application: Applica
         .stateIn(viewModelScope, SharingStarted.Eagerly, FilesUiState())
     private var listing: Job? = null
     private var picking: Job? = null
+    private var lastDevice: String? = null
 
     init {
         viewModelScope.launch {
@@ -35,15 +36,21 @@ internal class FilesViewModel(private val flipper: Flipper, application: Applica
                 (connection as? BleConnectionState.Connected)?.device?.address.takeIf { rpc == RpcStatus.ACTIVE }
             }.distinctUntilChanged().collect { address ->
                 listing?.cancel()
-                local.update { it.copy(rpcReady = address != null, deviceAddress = address, files = emptyList(), isLoading = false, error = null) }
+                val changedDevice = address != null && lastDevice != null && address != lastDevice
+                if (address != null) lastDevice = address
+                local.update { it.copy(rpcReady = address != null, deviceAddress = address, files = emptyList(),
+                    hasLoaded = false, isLoading = false, error = null,
+                    path = if (changedDevice) "/ext" else it.path,
+                    upload = if (changedDevice) null else it.upload,
+                    showUploadDialog = if (changedDevice) false else it.showUploadDialog) }
                 if (address != null) refresh()
             }
         }
         viewModelScope.launch {
             transfers.state.collect { operation ->
-                if (operation?.active == false && operation.successful) {
-                    local.update { it.copy(upload = null, showUploadDialog = false) }
-                    refresh()
+                if (operation?.active == false) {
+                    if (operation.successful) local.update { it.copy(upload = null, showUploadDialog = false) }
+                    if (operation.successful || !local.value.hasLoaded) refresh()
                 }
             }
         }
@@ -52,16 +59,17 @@ internal class FilesViewModel(private val flipper: Flipper, application: Applica
     fun open(path: String) {
         if (!available()) return
         listing?.cancel()
-        local.update { it.copy(path = path, files = emptyList(), error = null) }
+        local.update { it.copy(path = path, files = emptyList(), hasLoaded = false, error = null) }
         refresh()
     }
     fun refresh() {
         if (!available()) return
         listing?.cancel()
         val path = local.value.path
+        val address = local.value.deviceAddress
         listing = viewModelScope.launch {
-            local.update { it.copy(isLoading = true, error = null) }
-            try { val files = flipper.listFiles(path); local.update { it.copy(files = files, isLoading = false) } }
+            local.update { it.copy(isLoading = true, hasLoaded = false, error = null) }
+            try { val files = flipper.listFiles(path, expectedDeviceAddress = address); local.update { it.copy(files = files, hasLoaded = true, isLoading = false) } }
             catch (cancel: CancellationException) { throw cancel }
             catch (error: Exception) { local.update { it.copy(isLoading = false, error = error.message ?: error.toString()) } }
         }
@@ -91,9 +99,10 @@ internal class FilesViewModel(private val flipper: Flipper, application: Applica
     fun hideUploadDialog() { local.update { it.copy(showUploadDialog = false) } }
     fun clearUpload() {
         picking?.cancel()
-        local.update { it.copy(upload = null) }
+        local.update { it.copy(upload = null, showUploadDialog = false) }
     }
-    fun upload(name: String) {
+    fun upload(target: String, expectedDevice: String?) {
+        val name = target.substringAfterLast('/')
         val source = local.value.upload ?: return
         if (!available()) return
         if (name.isBlank() || name == "." || name == ".." || name.any { it.code !in 32..126 || it == '/' || it.code == 92 }) {
@@ -101,7 +110,7 @@ internal class FilesViewModel(private val flipper: Flipper, application: Applica
         }
         listing?.cancel()
         local.update { it.copy(isLoading = false, error = null) }
-        transfers.upload(flipper, local.value.path.trimEnd('/')+"/"+name, source)
+        transfers.upload(flipper, target, source, expectedDevice)
     }
     fun download(path: String, destination: Uri, expectedDevice: String?) {
         listing?.cancel()

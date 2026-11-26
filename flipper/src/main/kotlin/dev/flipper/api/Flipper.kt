@@ -49,21 +49,24 @@ interface Flipper {
         throw UnsupportedOperationException("This Flipper client does not report storage capacity")
     /** Completes only after PingResponse, rather than GATT write acknowledgement. */
     suspend fun ping(timeoutMillis: Long = 10_000L)
-    suspend fun listFiles(path: String, timeoutMillis: Long = 30_000L): List<StorageEntry>
+    suspend fun listFiles(path: String, timeoutMillis: Long = 30_000L, expectedDeviceAddress: String? = null): List<StorageEntry>
 
     /** Streams on IO; the caller owns/ closes the stream. Success includes size and MD5 verification.
      * Cancellation/failure during transfer disconnects this session; a partial destination may remain.
      * timeoutMillis=0 has no total duration limit; stalled streaming exchanges still fail after 60s.
      */
     suspend fun downloadFile(path: String, destination: OutputStream,
-        timeoutMillis: Long = 0L, onProgress: (TransferProgress) -> Unit = {}): TransferResult
+        timeoutMillis: Long = 0L, expectedDeviceAddress: String? = null, onProgress: (TransferProgress) -> Unit = {}): TransferResult
 
-    /** Experimental. Chooses a free name: file.ext, file (2).ext, etc. Writes through an owned temporary file.
+    /** Experimental. External writers to the same destination are unsupported: firmware Rename is not no-replace.
+     * Chooses a free name: file.ext, file (2).ext, etc. Writes through an owned temporary file.
      * ASCII absolute paths only. The caller owns/closes source. One storage operation at a time.
-     * Failed/cancelled temporary uploads are deleted; offline cleanup is persisted for the next connection.
+     * Failed/cancelled UUID temp uploads are deleted; offline cleanup is persisted.
+     * An ambiguous final destination is left for inspection, never auto-deleted.
+     * expectedDeviceAddress is checked after acquiring the storage lock.
      */
     suspend fun uploadFile(path: String, source: InputStream, sizeBytes: Long? = null,
-        timeoutMillis: Long = 600_000L, onProgress: (TransferProgress) -> Unit = {}): TransferResult
+        timeoutMillis: Long = 0L, expectedDeviceAddress: String? = null, onProgress: (TransferProgress) -> Unit = {}): TransferResult
 
     /** Saved BLE/dual/unknown-type devices plus currently connected system GATT devices.
      * Requires connectPermissions, never scan/location permission; no connection state is changed.

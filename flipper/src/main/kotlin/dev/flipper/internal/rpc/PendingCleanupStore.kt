@@ -12,7 +12,7 @@ internal class PendingCleanupStore(context: Context) {
     fun load(): List<PendingFileCleanup> = prefs.getStringSet("paths", emptySet()).orEmpty().mapNotNull { item ->
         val parts = item.split('|', limit = 2)
         val path = parts.getOrNull(1)
-        if (parts.size != 2 || path == null || !path.startsWith('/') || path.endsWith('/') ||
+        if (parts.size != 2 || path == null || !isOwnedUploadTemp(path) || !path.startsWith('/') || path.endsWith('/') ||
             path.split('/').any { it == "." || it == ".." } || path.any { it.code !in 32..126 }) null
         else PendingFileCleanup(parts[0], path)
     }
