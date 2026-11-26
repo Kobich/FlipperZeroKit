@@ -1,5 +1,10 @@
 package dev.flipper.ui.internal.pages.files
 
+import android.content.Intent
+import android.content.ActivityNotFoundException
+import android.webkit.MimeTypeMap
+import android.widget.Toast
+import androidx.compose.material.icons.outlined.OpenInNew
 import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -95,7 +100,8 @@ internal fun rememberFilesActions(viewModel: FilesViewModel, state: FilesUiState
         else startPending()
     }
     val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
-        if (uri != null && downloadPath != null) { downloadUri = uri.toString(); pendingUpload = false; requestNotificationAndStart() }
+        if (uri != null && downloadPath != null) { downloadUri = uri.toString(); pendingUpload = false
+            viewModel.prepareDownload(uri) { requestNotificationAndStart() } }
         else { downloadPath = null; downloadDevice = null }
     }
     val choose = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) viewModel.selectUpload(uri) }
@@ -113,7 +119,7 @@ internal fun rememberFilesActions(viewModel: FilesViewModel, state: FilesUiState
 @Composable
 internal fun FilesControls(state: FilesUiState, viewModel: FilesViewModel, actions: FilesActions, deferredCleanup: Int) {
     val context = LocalContext.current
-    val enabled = state.rpcReady && state.transfer?.active != true
+    val enabled = state.rpcReady && !state.isPreparingDocument && !state.transferBusy
     val copyResult = {
         val report = "Device: ${state.deviceAddress}\nPath: ${state.path}\nError: ${state.error}\nTransfer: ${state.transfer}"
         context.getSystemService(ClipboardManager::class.java)
@@ -137,8 +143,13 @@ internal fun FilesControls(state: FilesUiState, viewModel: FilesViewModel, actio
             Text("Files pending cleanup: $deferredCleanup. Cleanup will resume when Flipper is available.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
         }
-        if (state.cleanupStatus.isNotBlank()) Text(state.cleanupStatus, style = MaterialTheme.typography.bodySmall)
-        if (state.isLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
+        if (state.cleanupStatus.isNotBlank()) {
+            Text(state.cleanupStatus, style = MaterialTheme.typography.bodySmall)
+            TextButton(onClick = viewModel::retryCleanup, enabled = !state.transferBusy) { Text("Retry cleanup") }
+        }
+        if (state.transferBusy && state.transfer?.active == false) Text("Finishing operation…", style = MaterialTheme.typography.bodySmall)
+        if (state.isPreparingDocument) Text("Preparing document…", style = MaterialTheme.typography.bodySmall)
+        if (state.isLoading || state.isPreparingDocument) LinearProgressIndicator(Modifier.fillMaxWidth())
         if (state.rpcReady && state.hasLoaded && !state.isLoading && state.files.isEmpty() && state.error == null) {
             Text(stringResource(R.string.flipper_files_empty), style = MaterialTheme.typography.bodySmall)
         }
@@ -213,6 +224,7 @@ private fun UploadDialog(selected: SelectedUpload, path: String, actions: FilesA
 
 @Composable
 private fun TransferSummary(transfer: TransferUi, onCancel: () -> Unit, onCopyResult: () -> Unit) {
+    val context = LocalContext.current
     val total = transfer.total
     val progress = total?.takeIf { it > 0 }?.let { (transfer.bytes.toDouble() / it).toFloat().coerceIn(0f, 1f) }
     Card(Modifier.fillMaxWidth()) {
@@ -224,7 +236,16 @@ private fun TransferSummary(transfer: TransferUi, onCancel: () -> Unit, onCopyRe
                     IconButton(onClick = onCancel, enabled = !transfer.isCleaningUp) {
                         Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.flipper_files_cancel_transfer))
                     }
-                } else CopyResultButton(onCopyResult)
+                } else {
+                    if (transfer.successful && transfer.outputUri != null) IconButton(onClick = {
+                        val extension = transfer.outputName?.substringAfterLast('.', "")?.lowercase().orEmpty()
+                        val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "application/octet-stream"
+                        try { context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(transfer.outputUri.toUri(), mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)) }
+                        catch (_: ActivityNotFoundException) { Toast.makeText(context, "No app can open this file. Use Files.", Toast.LENGTH_LONG).show() }
+                        catch (_: SecurityException) { Toast.makeText(context, "Access expired. Open this file in Files.", Toast.LENGTH_LONG).show() }
+                    }) { Icon(Icons.Outlined.OpenInNew, contentDescription = "Open saved file") }
+                    CopyResultButton(onCopyResult)
+                }
             }
             if (transfer.active) {
                 if (progress == null) LinearProgressIndicator(Modifier.fillMaxWidth().padding(end = 8.dp))
@@ -285,7 +306,7 @@ internal fun FilesPage(state: FilesUiState, viewModel: FilesViewModel, actions: 
         FilesControls(state, viewModel, actions, deferredCleanup)
         LazyColumn(Modifier.weight(1f), state = listState) {
             items(state.files, key = { state.path + "/" + it.name }) { file ->
-                FileRow(file, state.rpcReady && state.transfer?.active != true) {
+                FileRow(file, state.rpcReady && !state.isPreparingDocument && state.transfer?.active != true) {
                     if (file.isDirectory) viewModel.open(state.path.trimEnd('/') + "/" + file.name) else actions.download(file)
                 }
             }

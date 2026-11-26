@@ -1,5 +1,7 @@
 package dev.flipper.ui.internal.pages.device
 
+import java.text.DateFormat
+import java.util.Date
 import android.content.Context
 import android.text.format.Formatter
 import androidx.compose.foundation.layout.Arrangement
@@ -58,6 +60,7 @@ internal fun DeviceOverview(
             actions()
         }
         overview.pingMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+        SnapshotTime(overview)
         InfoRow(stringResource(R.string.flipper_firmware_label), overview.info.summaryValue { it.firmwareVersion })
         InfoRow(stringResource(R.string.flipper_build_date_label), overview.info.summaryValue { it.firmwareBuildDate })
         InfoRow(stringResource(R.string.flipper_battery_charge_label), overview.power.summaryValue { power ->
@@ -131,6 +134,7 @@ internal fun DeviceDetailsPage(
 @Composable
 private fun DeviceDetailsPanels(address: String, details: DeviceDetails, sizeFormatContext: Context) {
     InfoPanel {
+        SnapshotTime(details)
         Text(stringResource(R.string.flipper_device_details_label), style = MaterialTheme.typography.titleSmall)
         InfoRow(stringResource(R.string.flipper_device_address_label), address)
         when (val info = details.info) {
@@ -253,4 +257,12 @@ private fun deviceInfoError(error: Exception): String {
         FlipperRpcException.Reason.UNEXPECTED_RESPONSE -> stringResource(R.string.flipper_device_info_unexpected_response)
         null -> stringResource(R.string.flipper_device_info_failed)
     }
+}
+
+@Composable
+private fun SnapshotTime(details: DeviceDetails) {
+    val time = details.updatedAtMillis?.let { DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(it)) }
+    if (time != null || details.isCached) Text(
+        (if (details.isCached) "Saved snapshot: " else "Updated: ") + (time ?: "time unknown; refresh to update"),
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }

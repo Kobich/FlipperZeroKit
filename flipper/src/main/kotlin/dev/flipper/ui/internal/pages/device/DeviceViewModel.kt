@@ -144,7 +144,10 @@ internal class DeviceViewModel constructor(
             infoJob.join()
             powerJob.join()
             sdJob.join()
-            if (readyAddress() == address) store.save(address, details.value)
+            if (readyAddress() == address) {
+                details.update { it.copy(updatedAtMillis = System.currentTimeMillis(), isCached = false) }
+                store.save(address, details.value)
+            }
         }
     }
 

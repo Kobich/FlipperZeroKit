@@ -25,6 +25,8 @@ internal class DeviceDetailsStore(context: Context) {
             val storageStatus = json.optInt("storageStatus").takeIf { it != 0 }
             if (info == null && power == null && sd == null && storageStatus == null) return null
             DeviceDetails(
+                updatedAtMillis = json.optLong("updatedAt").takeIf { it > 0 },
+                isCached = true,
                 info = info ?: unavailable(),
                 power = power ?: unavailable(),
                 sdCard = sd ?: unavailable(storageStatus),
@@ -38,11 +40,8 @@ internal class DeviceDetailsStore(context: Context) {
 
     fun save(address: String, details: DeviceDetails) {
         val key = address.uppercase()
-        val json = try {
-            JSONObject(prefs.getString(key, null) ?: "{}")
-        } catch (_: JSONException) {
-            JSONObject()
-        }
+        val json = JSONObject()
+        details.updatedAtMillis?.let { json.put("updatedAt", it) }
         (details.info as? DeviceInfoState.Ready)?.data?.let { json.put("device", JSONObject(it.fields)) }
         (details.power as? DeviceInfoState.Ready)?.data?.let { json.put("power", JSONObject(it.fields)) }
         (details.sdCard as? DeviceInfoState.Ready)?.data?.let {

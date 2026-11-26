@@ -1,3 +1,6 @@
+import java.io.File
+import java.security.KeyStore
+import java.security.MessageDigest
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -7,6 +10,24 @@ plugins {
     alias(libs.plugins.kotlin.kapt)
     alias(libs.plugins.hilt)
 }
+
+val prototypeKey = providers.environmentVariable("FLIPPER_PROTOTYPE_KEYSTORE")
+    .map { rootProject.file(it) }.getOrElse(File(System.getProperty("user.home"), ".android/debug.keystore"))
+val prototypeCertificate = rootProject.file("signing/prototype-sha256.txt").readText().trim()
+val verifyPrototypeSigning = tasks.register("verifyPrototypeSigning") {
+    inputs.file(prototypeKey)
+    inputs.property("certificate", prototypeCertificate)
+    doLast {
+        val keyFile = inputs.files.singleFile
+        check(keyFile.isFile) { "Provide the existing Android debug.keystore or FLIPPER_PROTOTYPE_KEYSTORE. A new signing key must not be generated automatically." }
+        val store = KeyStore.getInstance("JKS")
+        keyFile.inputStream().use { store.load(it, "android".toCharArray()) }
+        val certificate = checkNotNull(store.getCertificate("androiddebugkey")) { "Prototype signing alias is missing" }
+        val fingerprint = MessageDigest.getInstance("SHA-256").digest(certificate.encoded).joinToString("") { "%02x".format(it.toInt() and 255) }
+        check(fingerprint == inputs.properties["certificate"]) { "Prototype certificate mismatch. Refusing to publish an APK that cannot update the test channel." }
+    }
+}
+tasks.matching { it.name == "preDebugBuild" || it.name == "preReleaseBuild" }.configureEach { dependsOn(verifyPrototypeSigning) }
 
 android {
     namespace = "dev.flipper.zerokit.sample"
@@ -19,15 +40,26 @@ android {
         applicationId = "dev.flipper.zerokit.sample"
         minSdk = 23
         targetSdk = 37
-        versionCode = 15
-        versionName = "1.14-prototype"
+        versionCode = 16
+        versionName = "1.15-prototype"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("prototype") {
+            storeFile = prototypeKey
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
     buildTypes {
+        debug { signingConfig = signingConfigs.getByName("prototype") }
         release {
-            isMinifyEnabled = false // TODO(release): R8 and signing before publishing.
+            isMinifyEnabled = true
+            signingConfig = signingConfigs.getByName("prototype")
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
         }
     }
     compileOptions {

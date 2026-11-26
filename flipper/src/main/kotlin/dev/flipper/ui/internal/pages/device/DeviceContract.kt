@@ -31,6 +31,8 @@ internal data class DeviceDetails(
     val power: DeviceInfoState<PowerInfo> = DeviceInfoState.Loading,
     val sdCard: DeviceInfoState<StorageInfo> = DeviceInfoState.Loading,
     val pingMessage: String? = null,
+    val updatedAtMillis: Long? = null,
+    val isCached: Boolean = false,
 ) {
     val isLoading: Boolean get() = listOf(info, power, sdCard).any { it == DeviceInfoState.Loading }
 }

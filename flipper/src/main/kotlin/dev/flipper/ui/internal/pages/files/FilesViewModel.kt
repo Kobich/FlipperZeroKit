@@ -9,7 +9,6 @@ import dev.flipper.api.Flipper
 import dev.flipper.api.model.BleConnectionState
 import dev.flipper.api.model.RpcStatus
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -18,17 +17,18 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import dev.flipper.internal.io.ProviderIo
 
 internal class FilesViewModel(private val flipper: Flipper, application: Application) : ViewModel() {
     private val resolver = application.contentResolver
     private val transfers = TransferManager.get(flipper, application)
     private val local = MutableStateFlow(FilesUiState())
-    val state = combine(local, transfers.state, transfers.localCleanupStatus) { screen, operation, cleanup -> screen.copy(transfer = operation, cleanupStatus = cleanup) }
+    val state = combine(local, transfers.state, transfers.localCleanupStatus, transfers.busy) { screen, operation, cleanup, busy -> screen.copy(transfer = operation, cleanupStatus = cleanup, transferBusy = busy) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, FilesUiState())
     private var listing: Job? = null
     private var picking: Job? = null
     private var lastDevice: String? = null
+    private var selectionRequest = 0L
 
     init {
         viewModelScope.launch {
@@ -55,7 +55,7 @@ internal class FilesViewModel(private val flipper: Flipper, application: Applica
             }
         }
     }
-    private fun available() = local.value.rpcReady && transfers.state.value?.active != true
+    private fun available() = local.value.rpcReady && !local.value.isPreparingDocument && !transfers.busy.value
     fun open(path: String) {
         if (!available()) return
         listing?.cancel()
@@ -71,14 +71,16 @@ internal class FilesViewModel(private val flipper: Flipper, application: Applica
             local.update { it.copy(isLoading = true, hasLoaded = false, error = null) }
             try { val files = flipper.listFiles(path, expectedDeviceAddress = address); local.update { it.copy(files = files, hasLoaded = true, isLoading = false) } }
             catch (cancel: CancellationException) { throw cancel }
-            catch (error: Exception) { local.update { it.copy(isLoading = false, error = error.message ?: error.toString()) } }
+            catch (error: Exception) { local.update { it.copy(isLoading = false, error = fileErrorMessage(error)) } }
         }
     }
     fun selectUpload(uri: Uri) {
         picking?.cancel()
+        local.update { it.copy(upload = null, showUploadDialog = false, isPreparingDocument = true) }
+        val request = ++selectionRequest
         picking = viewModelScope.launch {
             try {
-                val selected = withContext(Dispatchers.IO) {
+                val selected = ProviderIo.shared.call(uri.toString()) {
                     var name = "upload.bin"
                     var size: Long? = null
                     resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { cursor ->
@@ -117,5 +119,12 @@ internal class FilesViewModel(private val flipper: Flipper, application: Applica
         local.update { it.copy(isLoading = false, error = null) }
         transfers.download(flipper, path, destination, expectedDevice)
     }
+    fun prepareDownload(uri: Uri, onReady: () -> Unit) {
+        local.update { it.copy(isPreparingDocument = true) }
+        transfers.prepareDownload(uri,
+            onReady = { local.update { it.copy(isPreparingDocument = false) }; onReady() },
+            onFailure = { local.update { it.copy(isPreparingDocument = false) } })
+    }
+    fun retryCleanup() = transfers.retryCleanup()
     fun cancelTransfer() = transfers.cancel()
 }

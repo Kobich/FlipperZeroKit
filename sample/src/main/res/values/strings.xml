@@ -1,4 +1,5 @@
 <resources>
     <string name="app_name">FlipperZeroKit Sample</string>
     <string name="tab_flipper">Flipper</string>
+    <string name="tab_home">Home</string>
 </resources>

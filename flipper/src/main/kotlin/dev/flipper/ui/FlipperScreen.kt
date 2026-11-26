@@ -74,6 +74,14 @@ fun FlipperScreen(flipper: Flipper, modifier: Modifier = Modifier, connectionCon
     val deferredCleanup = if (recovering || state.transfer?.active == true) 0 else cleanup.size
     val status = controller.status?.collectAsStateWithLifecycle()?.value
     val connectingDevice = (controller as? ConnectionViewModel)?.connectingDevice?.collectAsStateWithLifecycle()?.value
+    var refreshedTransfer by rememberSaveable { mutableStateOf<Long?>(null) }
+    LaunchedEffect(state.transfer?.id, state.transfer?.active) {
+        val transfer = state.transfer
+        if (transfer?.successful == true && transfer.id != refreshedTransfer) {
+            refreshedTransfer = transfer.id
+            device.onIntent(DeviceIntent.RefreshInfo)
+        }
+    }
     val actions = rememberFilesActions(files, state)
     val copyDeviceDiagnostics = rememberCopyDeviceDiagnostics(device)
     val overviewListState = rememberLazyListState()

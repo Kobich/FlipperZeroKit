@@ -1,5 +1,6 @@
 package dev.flipper.ui.internal.pages.device
 
+import androidx.core.net.toUri
 import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -42,7 +43,7 @@ import androidx.compose.material3.TextButton
 import dev.flipper.api.model.BleFailure
 import dev.flipper.api.FlipperPermissions
 
-private enum class EntryAction { KNOWN_DEVICES, SCAN }
+private enum class EntryAction { KNOWN_DEVICES, SCAN, CONNECT }
 
 @Composable
 internal fun rememberCopyDeviceDiagnostics(viewModel: DeviceViewModel): () -> Unit {
@@ -71,10 +72,16 @@ internal fun DeviceRoute(
 ) {
     val context = LocalContext.current
     var pendingAction by rememberSaveable { mutableStateOf(EntryAction.KNOWN_DEVICES) }
+    var targetAddress by rememberSaveable { mutableStateOf<String?>(null) }
+    var targetName by rememberSaveable { mutableStateOf("") }
     var permissionDenied by rememberSaveable { mutableStateOf(false) }
     var enableDenied by rememberSaveable { mutableStateOf(false) }
     val dispatchAction: (EntryAction) -> Unit = { action ->
-        viewModel.onIntent(if (action == EntryAction.SCAN) DeviceIntent.StartScan else DeviceIntent.RefreshKnownDevices)
+        when (action) {
+            EntryAction.SCAN -> viewModel.onIntent(DeviceIntent.StartScan)
+            EntryAction.KNOWN_DEVICES -> viewModel.onIntent(DeviceIntent.RefreshKnownDevices)
+            EntryAction.CONNECT -> targetAddress?.let { viewModel.onIntent(DeviceIntent.SelectDevice(BleDevice(targetName, it))) }
+        }
     }
     val permissionsFor: (EntryAction) -> Array<String> = { action ->
         if (action == EntryAction.SCAN) FlipperPermissions.requiredPermissions else FlipperPermissions.connectPermissions
@@ -114,7 +121,9 @@ internal fun DeviceRoute(
         onScan = { requestAction(EntryAction.SCAN) },
         onKnownDevices = { requestAction(EntryAction.KNOWN_DEVICES) },
         onStopScan = { viewModel.onIntent(DeviceIntent.StopScan) },
-        onConnect = { viewModel.onIntent(DeviceIntent.SelectDevice(it)) },
+        onConnect = { targetAddress = it.address; targetName = it.name; requestAction(EntryAction.CONNECT) },
+        onRetryAccess = { requestAction(pendingAction) },
+        onSettings = { context.startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, ("package:"+context.packageName).toUri())) },
         onDisconnect = { viewModel.onIntent(DeviceIntent.Disconnect) },
         onRefresh = { viewModel.onIntent(DeviceIntent.RefreshInfo) },
         sendPing = { viewModel.onIntent(DeviceIntent.Ping) },
@@ -133,6 +142,8 @@ private fun DeviceScreen(
     onKnownDevices: () -> Unit,
     onStopScan: () -> Unit,
     onConnect: (BleDevice) -> Unit,
+    onRetryAccess: () -> Unit,
+    onSettings: () -> Unit,
     onDisconnect: () -> Unit,
     onRefresh: () -> Unit,
     sendPing: () -> Unit,
@@ -188,6 +199,10 @@ private fun DeviceScreen(
                 }
                 if (enableDenied) {
                     Text(stringResource(R.string.flipper_bluetooth_enable_denied), color = MaterialTheme.colorScheme.error)
+                }
+                if (permissionDenied || enableDenied) Row {
+                    TextButton(onClick = onRetryAccess) { Text("Try again") }
+                    if (permissionDenied) TextButton(onClick = onSettings) { Text("App settings") }
                 }
                 DevicePicker(state, onScan, onStopScan, onKnownDevices, onCopyDiagnostics, onConnect)
             }
