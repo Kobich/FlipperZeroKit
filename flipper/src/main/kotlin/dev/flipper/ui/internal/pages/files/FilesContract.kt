@@ -17,5 +17,6 @@ internal data class FilesUiState(
     val cleanupStatus: String = "",
     val transfer: TransferUi? = null,
     val upload: SelectedUpload? = null,
+    val showUploadDialog: Boolean = false,
     val deviceAddress: String? = null,
 )

@@ -42,7 +42,7 @@ internal class FilesViewModel(private val flipper: Flipper, application: Applica
         viewModelScope.launch {
             transfers.state.collect { operation ->
                 if (operation?.active == false && operation.successful) {
-                    local.update { it.copy(upload = null) }
+                    local.update { it.copy(upload = null, showUploadDialog = false) }
                     refresh()
                 }
             }
@@ -83,10 +83,15 @@ internal class FilesViewModel(private val flipper: Flipper, application: Applica
                     }
                     SelectedUpload(uri, name, size)
                 }
-                local.update { it.copy(upload = selected, error = null) }
+                local.update { it.copy(upload = selected, showUploadDialog = true, error = null) }
             } catch (cancel: CancellationException) { throw cancel }
             catch (error: Exception) { local.update { it.copy(error = error.message ?: error.toString()) } }
         }
+    }
+    fun hideUploadDialog() { local.update { it.copy(showUploadDialog = false) } }
+    fun clearUpload() {
+        picking?.cancel()
+        local.update { it.copy(upload = null) }
     }
     fun upload(name: String) {
         val source = local.value.upload ?: return

@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -46,12 +45,12 @@ import dev.flipper.ui.internal.pages.device.DeviceIntent
 import dev.flipper.ui.internal.pages.device.DeviceRoute
 import dev.flipper.ui.internal.pages.device.DeviceViewModel
 import dev.flipper.ui.internal.pages.device.rememberCopyDeviceDiagnostics
-import dev.flipper.ui.internal.pages.files.FileRow
-import dev.flipper.ui.internal.pages.files.FilesControls
+import dev.flipper.ui.internal.pages.files.FilesPage
+import dev.flipper.ui.internal.pages.files.FilesOverview
 import dev.flipper.ui.internal.pages.files.FilesViewModel
 import dev.flipper.ui.internal.pages.files.rememberFilesActions
 
-/** One host destination with a scrollable overview and an internal device details page.
+/** One host destination with a scrollable overview and internal device details and file browser pages.
  * The host owns the Flipper client and its lifetime; active file jobs belong to the foreground service.
  */
 @Composable
@@ -78,6 +77,8 @@ fun FlipperScreen(flipper: Flipper, modifier: Modifier = Modifier, connectionCon
     val actions = rememberFilesActions(files, state)
     val copyDeviceDiagnostics = rememberCopyDeviceDiagnostics(device)
     val overviewListState = rememberLazyListState()
+    val filesListState = rememberLazyListState()
+    var showFiles by rememberSaveable { mutableStateOf(false) }
     var allInfoAddress by rememberSaveable { mutableStateOf<String?>(null) }
     val detailDevice = (deviceState.connection as? BleConnectionState.Connected)?.device?.takeIf {
         deviceState.isRpcReady && it.address == allInfoAddress
@@ -88,7 +89,9 @@ fun FlipperScreen(flipper: Flipper, modifier: Modifier = Modifier, connectionCon
         onStopOrDispose { controller.onLeave(activity?.isChangingConfigurations == true) }
     }
     LifecycleEventEffect(Lifecycle.Event.ON_START) { device.onIntent(DeviceIntent.RefreshKnownDevices) }
-    BackHandler(enabled = detailDevice != null) { allInfoAddress = null }
+    BackHandler(enabled = detailDevice != null || showFiles) {
+        if (detailDevice != null) allInfoAddress = null else showFiles = false
+    }
     LaunchedEffect(allInfoAddress, detailDevice) {
         if (allInfoAddress != null && detailDevice == null) allInfoAddress = null
     }
@@ -96,6 +99,8 @@ fun FlipperScreen(flipper: Flipper, modifier: Modifier = Modifier, connectionCon
     if (detailDevice != null) {
         DeviceDetailsPage(detailDevice, deviceState.details, onBack = { allInfoAddress = null },
             onCopyDiagnostics = copyDeviceDiagnostics, modifier = modifier)
+    } else if (showFiles) {
+        FilesPage(state, files, actions, deferredCleanup, filesListState, onBack = { showFiles = false }, modifier = modifier)
     } else {
         LazyColumn(modifier.fillMaxSize(), state = overviewListState) {
             if (!status.isNullOrBlank()) item("connection-status") { Text(status, Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) }
@@ -103,11 +108,8 @@ fun FlipperScreen(flipper: Flipper, modifier: Modifier = Modifier, connectionCon
                 DeviceRoute(device, deviceState, connectingDevice, copyDeviceDiagnostics,
                     onShowAllInfo = { allInfoAddress = it })
             }
-            item("file-controls") { FilesControls(state, files, actions, deferredCleanup) }
-            items(state.files, key = { state.path+"/"+it.name }) { file ->
-                FileRow(file, state.rpcReady && state.transfer?.active != true) {
-                    if (file.isDirectory) files.open(state.path.trimEnd('/')+"/"+file.name) else actions.download(file)
-                }
+            item("files-overview") {
+                FilesOverview(state, files, deferredCleanup, onOpen = { showFiles = true })
             }
         }
     }

@@ -120,4 +120,11 @@
     <string name="flipper_files_copy_result">Copy transfer result</string>
     <string name="flipper_files_open_folder">Open folder</string>
     <string name="flipper_files_download">Download file</string>
+    <string name="flipper_files_open">Open files</string>
+    <string name="flipper_files_destination">Destination: %1$s</string>
+    <string name="flipper_files_name_hint">Use 1–255 ASCII characters without path separators.</string>
+    <string name="flipper_files_collision_hint">If the name exists, a free name (2), (3)… will be used.</string>
+    <string name="flipper_files_close">Close</string>
+    <string name="flipper_files_transfer_details">Transfer details</string>
+    <string name="flipper_files_title">Files</string>
 </resources>
