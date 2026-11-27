@@ -4,6 +4,17 @@
 [Дополнительный APK release/R8](FlipperZeroKit-release.apk?raw=true).
 [Контрольные файлы ZIP](flipper-test-files.zip?raw=true).
 
+## History Preview
+
+Тестовая сборка из коммита `d038978b88921b5b3b3ad0fa64152db68c7f9763` с отдельной страницей **History**. Устанавливается рядом с обычным FlipperZeroKit и хранит свои настройки и историю. [Скачать History Preview APK](FlipperZeroKit-history-preview.apk?raw=true).
+
+- Application ID `dev.flipper.zerokit.sample.historypreview`.
+- Версия `1.15-history-preview`, код 16.
+- APK SHA-256 `34d8d9a489bd78f9bcfbcdf49bc549cdf47ebd6a61b6fdbdb9f6762e41bd9cde`.
+- Сертификат debug SHA-256 `f8fa40ee846c1f87f31bcc2de757fe388c91761600db483b2420cd0bf1b25aad`.
+
+## Прототип 1.15
+
 - Вариант: sample debug, подписан debug-ключом.
 - Исходный коммит: 38ea63b736c27f5baced1eec705c09c866dc36e3.
 - Application ID: dev.flipper.zerokit.sample.
