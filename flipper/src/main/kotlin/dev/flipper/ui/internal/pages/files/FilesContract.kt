@@ -4,9 +4,14 @@ import android.net.Uri
 import dev.flipper.api.model.StorageEntry
 
 internal data class SelectedUpload(val uri: Uri, val originalName: String, val sizeBytes: Long?)
+internal enum class TransferOutcome { SUCCEEDED, FAILED, CANCELED }
+
 internal data class TransferUi(val id: Long, val title: String, val bytes: Long = 0, val total: Long? = null,
-    val active: Boolean = true, val message: String = "Preparing…", val successful: Boolean = false,
-    val isCleaningUp: Boolean = false, val outputUri: String? = null, val outputName: String? = null, val diagnostic: String? = null)
+    val message: String = "Preparing…", val outcome: TransferOutcome? = null,
+    val isCleaningUp: Boolean = false, val outputUri: String? = null, val outputName: String? = null, val diagnostic: String? = null) {
+    val active: Boolean get() = outcome == null
+    val successful: Boolean get() = outcome == TransferOutcome.SUCCEEDED
+}
 
 internal data class FilesUiState(
     val rpcReady: Boolean = false,

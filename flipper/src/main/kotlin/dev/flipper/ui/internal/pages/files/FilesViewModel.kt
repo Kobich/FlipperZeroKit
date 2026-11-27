@@ -22,6 +22,7 @@ import dev.flipper.internal.io.ProviderIo
 internal class FilesViewModel(private val flipper: Flipper, application: Application) : ViewModel() {
     private val resolver = application.contentResolver
     private val transfers = TransferManager.get(flipper, application)
+    val history = transfers.historyEntries
     private val local = MutableStateFlow(FilesUiState())
     val state = combine(local, transfers.state, transfers.localCleanupStatus, transfers.busy) { screen, operation, cleanup, busy -> screen.copy(transfer = operation, cleanupStatus = cleanup, transferBusy = busy) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, FilesUiState())

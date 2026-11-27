@@ -15,6 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
@@ -27,6 +28,8 @@ import kotlinx.coroutines.withTimeout
 internal class TransferManager private constructor(private val app: Application) {
     private val resolver: ContentResolver = app.contentResolver
     private val localCleanup = LocalDownloadCleanup.get(app)
+    private val history = TransferHistory.get(app)
+    val historyEntries = history.entries
     val localCleanupStatus = localCleanup.status
     private var activeDestination: Uri? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -48,7 +51,7 @@ internal class TransferManager private constructor(private val app: Application)
     fun onServiceReady() { ready.complete(Unit) }
     fun onServiceFailure(error: Exception) { finish("Background transfer failed: "+error.message); ready.completeExceptionally(error) }
     fun cancel() {
-        _state.update { it?.copy(message = "Canceling transfer, cleaning up, and reconnecting…") }
+        _state.update { if (it?.active == true) it.copy(message = "Canceling transfer, cleaning up, and reconnecting…") else it }
         job?.cancel()
     }
     fun onServiceDestroyed() { if (_state.value?.active == true) cancel() }
@@ -57,15 +60,23 @@ internal class TransferManager private constructor(private val app: Application)
         _state.update { it?.copy(diagnostic = error.stackTraceToString()) }
         finish(fileErrorMessage(error)+suffix)
     }
-    private fun finish(message: String, success: Boolean = false) {
-        _state.update { it?.copy(active = false, successful = success, message = message, isCleaningUp = false) }
+    private fun finish(message: String, outcome: TransferOutcome = TransferOutcome.FAILED) {
+        _state.update { it?.copy(outcome = outcome, message = message, isCleaningUp = false) }
+    }
+
+    private fun preparationFailed(error: Exception) {
+        if (_busy.value) return
+        val result = TransferUi(++sequence, "Download", outcome = TransferOutcome.FAILED,
+            message = fileErrorMessage(error), diagnostic = error.stackTraceToString())
+        _state.value = result
+        history.record(result)
     }
     fun prepareDownload(destination: Uri, onReady: () -> Unit, onFailure: () -> Unit) {
         try { localCleanup.claim(destination) }
         catch (error: Exception) {
             onFailure()
             scope.launch { localCleanup.remove(destination) }
-            if (_state.value?.active != true) _state.value = TransferUi(++sequence, "Download", active = false, message = fileErrorMessage(error), diagnostic = error.stackTraceToString())
+            preparationFailed(error)
             return
         }
         if (_busy.value || job?.isActive == true) {
@@ -78,7 +89,7 @@ internal class TransferManager private constructor(private val app: Application)
             catch (error: Exception) {
                 onFailure()
                 withContext(NonCancellable) { localCleanup.remove(destination) }
-                if (_state.value?.active != true) _state.value = TransferUi(++sequence, "Download", active = false, message = fileErrorMessage(error), diagnostic = error.stackTraceToString())
+                preparationFailed(error)
             }
         }
     }
@@ -93,13 +104,18 @@ internal class TransferManager private constructor(private val app: Application)
 
     private fun start(client: Flipper, title: String, total: Long?, beforeOperationFailure: suspend () -> Unit = {},
         operation: suspend () -> Unit): Boolean {
-        if (_state.value?.active == true || job?.isActive == true) return false
+        if (_busy.value) return false
         val transfer = TransferUi(++sequence, title, total = total)
-        _state.value = transfer
         _busy.value = true
+        _state.value = transfer
         ready = CompletableDeferred()
         try { TransferService.start(app, this) }
-        catch (error: Exception) { finish("Could not start the background transfer: "+error.message); _busy.value = false; return false }
+        catch (error: Exception) {
+            finish("Could not start the background transfer: "+error.message)
+            _state.value?.let(history::record)
+            _busy.value = false
+            return false
+        }
         job = scope.launch {
             // Keep observing after cancellation so the dialog can span RPC recovery and local cleanup.
             val recoveryWatch = scope.launch {
@@ -115,15 +131,23 @@ internal class TransferManager private constructor(private val app: Application)
                 localCleanup.retry()
                 enteredOperation = true
                 operation()
+            } catch (timeout: TimeoutCancellationException) {
+                fail(timeout)
             } catch (cancel: CancellationException) {
-                if (_state.value?.active == true) finish("Transfer canceled. Check the cleanup status.")
+                if (_state.value?.active == true) finish("Transfer canceled. Check the cleanup status.", TransferOutcome.CANCELED)
                 throw cancel
             } catch (error: Exception) { fail(error) }
             finally {
                 recoveryWatch.cancel()
                 try { if (!enteredOperation) withContext(NonCancellable) { beforeOperationFailure() } }
                 catch (error: Exception) { finish("Could not remove the created document: "+error.message) }
-                finally { activeDestination = null; TransferService.finish(this@TransferManager); job = null; _busy.value = false }
+                finally {
+                    activeDestination = null
+                    TransferService.finish(this@TransferManager)
+                    _state.value?.takeIf { it.id == transfer.id }?.let(history::record)
+                    job = null
+                    _busy.value = false
+                }
             }
         }
         return true
@@ -161,10 +185,10 @@ internal class TransferManager private constructor(private val app: Application)
                         } }
                     }
                 }
-                finish("Uploaded: "+result.path+"\nMD5: "+result.md5, true)
+                finish("Uploaded: "+result.path+"\nMD5: "+result.md5, TransferOutcome.SUCCEEDED)
             } catch (cancel: CancellationException) {
                 finish(if (client.pendingFileCleanup.value.isEmpty()) "Canceled. Temporary files were cleaned. If finalization had started, inspect $target."
-                    else "Canceled. File cleanup will resume when Flipper reconnects.")
+                    else "Canceled. File cleanup will resume when Flipper reconnects.", TransferOutcome.CANCELED)
                 throw cancel
             } catch (error: Exception) {
                 fail(error, if (client.pendingFileCleanup.value.isEmpty())
@@ -203,11 +227,12 @@ internal class TransferManager private constructor(private val app: Application)
                 withContext(NonCancellable) {
                     localCleanup.forget(destination)
                     _state.update { it?.copy(outputUri = destination.toString(), outputName = name) }
-                    finish("Saved: "+name+"\nMD5 matched: "+result.md5, true)
+                    finish("Saved: "+name+"\nMD5 matched: "+result.md5, TransferOutcome.SUCCEEDED)
                 }
             } catch (cancel: CancellationException) {
                 val removed = removeFailedDownload(destination)
-                finish(if (removed) "Canceled. The partial document was removed." else "Canceled. Cleanup is deferred until the document provider is available. Use Retry cleanup.")
+                finish(if (removed) "Canceled. The partial document was removed."
+                    else "Canceled. Cleanup is deferred until the document provider is available. Use Retry cleanup.", TransferOutcome.CANCELED)
                 throw cancel
             } catch (error: Exception) {
                 val removed = removeFailedDownload(destination)

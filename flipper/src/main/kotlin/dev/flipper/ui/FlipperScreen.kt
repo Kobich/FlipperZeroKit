@@ -48,6 +48,7 @@ import dev.flipper.ui.internal.pages.device.rememberCopyDeviceDiagnostics
 import dev.flipper.ui.internal.pages.files.FilesPage
 import dev.flipper.ui.internal.pages.files.FilesOverview
 import dev.flipper.ui.internal.pages.files.FilesViewModel
+import dev.flipper.ui.internal.pages.files.TransferHistoryPage
 import dev.flipper.ui.internal.pages.files.rememberFilesActions
 
 /** One host destination with a scrollable overview and internal device details and file browser pages.
@@ -87,6 +88,7 @@ fun FlipperScreen(flipper: Flipper, modifier: Modifier = Modifier, connectionCon
     val overviewListState = rememberLazyListState()
     val filesListState = rememberLazyListState()
     var showFiles by rememberSaveable { mutableStateOf(false) }
+    var showHistory by rememberSaveable { mutableStateOf(false) }
     val closeFiles = {
         if (state.isPreparingUpload || state.showUploadDialog) files.clearUpload()
         showFiles = false
@@ -101,8 +103,12 @@ fun FlipperScreen(flipper: Flipper, modifier: Modifier = Modifier, connectionCon
         onStopOrDispose { controller.onLeave(activity?.isChangingConfigurations == true) }
     }
     LifecycleEventEffect(Lifecycle.Event.ON_START) { device.onIntent(DeviceIntent.RefreshKnownDevices) }
-    BackHandler(enabled = detailDevice != null || showFiles) {
-        if (detailDevice != null) allInfoAddress = null else closeFiles()
+    BackHandler(enabled = detailDevice != null || showFiles || showHistory) {
+        when {
+            detailDevice != null -> allInfoAddress = null
+            showFiles -> closeFiles()
+            showHistory -> showHistory = false
+        }
     }
     LaunchedEffect(allInfoAddress, detailDevice) {
         if (allInfoAddress != null && detailDevice == null) allInfoAddress = null
@@ -113,6 +119,9 @@ fun FlipperScreen(flipper: Flipper, modifier: Modifier = Modifier, connectionCon
             onCopyDiagnostics = copyDeviceDiagnostics, modifier = modifier)
     } else if (showFiles) {
         FilesPage(state, files, actions, deferredCleanup, filesListState, onBack = closeFiles, modifier = modifier)
+    } else if (showHistory) {
+        val history by files.history.collectAsStateWithLifecycle()
+        TransferHistoryPage(history, onBack = { showHistory = false }, modifier = modifier)
     } else {
         LazyColumn(modifier.fillMaxSize(), state = overviewListState) {
             if (!status.isNullOrBlank()) item("connection-status") { Text(status, Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) }
@@ -121,7 +130,7 @@ fun FlipperScreen(flipper: Flipper, modifier: Modifier = Modifier, connectionCon
                     onShowAllInfo = { allInfoAddress = it })
             }
             item("files-overview") {
-                FilesOverview(state, files, deferredCleanup, onOpen = { showFiles = true })
+                FilesOverview(state, files, deferredCleanup, onOpen = { showFiles = true }, onOpenHistory = { showHistory = true })
             }
         }
     }

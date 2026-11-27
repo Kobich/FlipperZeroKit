@@ -1,10 +1,5 @@
 package dev.flipper.ui.internal.pages.files
 
-import android.content.Intent
-import android.content.ActivityNotFoundException
-import android.webkit.MimeTypeMap
-import android.widget.Toast
-import androidx.compose.material.icons.outlined.OpenInNew
 import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -51,6 +46,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -131,7 +127,7 @@ internal fun FilesControls(state: FilesUiState, viewModel: FilesViewModel, actio
         } else {
             Text(stringResource(R.string.flipper_files_connect), style = MaterialTheme.typography.bodySmall)
         }
-        state.transfer?.takeIf { it.active }?.let { TransferSummary(it, viewModel::cancelTransfer, copyResult) }
+        state.transfer?.takeIf { it.active }?.let { TransferProgress(it, viewModel::cancelTransfer) }
 
         state.error?.let { error ->
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -223,8 +219,7 @@ private fun UploadDialog(selected: SelectedUpload, path: String, actions: FilesA
 }
 
 @Composable
-private fun TransferSummary(transfer: TransferUi, onCancel: () -> Unit, onCopyResult: () -> Unit) {
-    val context = LocalContext.current
+private fun TransferProgress(transfer: TransferUi, onCancel: () -> Unit) {
     val total = transfer.total
     val progress = total?.takeIf { it > 0 }?.let { (transfer.bytes.toDouble() / it).toFloat().coerceIn(0f, 1f) }
     Card(Modifier.fillMaxWidth()) {
@@ -232,34 +227,21 @@ private fun TransferSummary(transfer: TransferUi, onCancel: () -> Unit, onCopyRe
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(transfer.title, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall,
                     maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
-                if (transfer.active) {
-                    IconButton(onClick = onCancel, enabled = !transfer.isCleaningUp) {
-                        Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.flipper_files_cancel_transfer))
-                    }
-                } else {
-                    if (transfer.successful && transfer.outputUri != null) IconButton(onClick = {
-                        val extension = transfer.outputName?.substringAfterLast('.', "")?.lowercase().orEmpty()
-                        val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "application/octet-stream"
-                        try { context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(transfer.outputUri.toUri(), mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)) }
-                        catch (_: ActivityNotFoundException) { Toast.makeText(context, "No app can open this file. Use Files.", Toast.LENGTH_LONG).show() }
-                        catch (_: SecurityException) { Toast.makeText(context, "Access expired. Open this file in Files.", Toast.LENGTH_LONG).show() }
-                    }) { Icon(Icons.Outlined.OpenInNew, contentDescription = "Open saved file") }
-                    CopyResultButton(onCopyResult)
+                IconButton(onClick = onCancel, enabled = !transfer.isCleaningUp) {
+                    Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.flipper_files_cancel_transfer))
                 }
             }
-            if (transfer.active) {
-                if (progress == null) LinearProgressIndicator(Modifier.fillMaxWidth().padding(end = 8.dp))
-                else LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().padding(end = 8.dp))
-                val bytes = "${transfer.bytes} / ${total ?: "?"} bytes"
-                Text(if (progress == null) bytes else "$bytes · ${(progress * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
-            }
+            if (progress == null) LinearProgressIndicator(Modifier.fillMaxWidth().padding(end = 8.dp))
+            else LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().padding(end = 8.dp))
+            val bytes = "${transfer.bytes} / ${total ?: "?"} bytes"
+            Text(if (progress == null) bytes else "$bytes · ${(progress * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
             Text(transfer.message, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
 
 @Composable
-private fun CopyResultButton(onClick: () -> Unit) {
+internal fun CopyResultButton(onClick: () -> Unit) {
     IconButton(onClick = onClick) {
         Icon(Icons.Outlined.ContentCopy, contentDescription = stringResource(R.string.flipper_files_copy_result))
     }
@@ -315,25 +297,28 @@ internal fun FilesPage(state: FilesUiState, viewModel: FilesViewModel, actions: 
 }
 
 @Composable
-internal fun FilesOverview(state: FilesUiState, viewModel: FilesViewModel, deferredCleanup: Int, onOpen: () -> Unit) {
-    var showTransfer by rememberSaveable { mutableStateOf(false) }
+internal fun FilesOverview(state: FilesUiState, viewModel: FilesViewModel, deferredCleanup: Int,
+    onOpen: () -> Unit, onOpenHistory: () -> Unit) {
+    val transfer = state.transfer?.takeIf { it.active }
+    var showTransfer by rememberSaveable(transfer?.id) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Card(onClick = onOpen, modifier = Modifier.fillMaxWidth()) {
-            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Icon(Icons.Outlined.Folder, contentDescription = null)
-                Text(stringResource(R.string.flipper_files_open), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                Icon(Icons.Outlined.ChevronRight, contentDescription = null)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Card(onClick = onOpen, modifier = Modifier.weight(1f)) {
+                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Outlined.Folder, contentDescription = null)
+                    Text(stringResource(R.string.flipper_files_open), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                    Icon(Icons.Outlined.ChevronRight, contentDescription = null)
+                }
             }
+            OutlinedButton(onClick = onOpenHistory) { Text(stringResource(R.string.flipper_files_history)) }
         }
-        state.transfer?.let { transfer ->
+        transfer?.let {
             Card(onClick = { showTransfer = true }, modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(transfer.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
-                    if (transfer.active) {
-                        val progress = transfer.total?.takeIf { it > 0 }?.let { (transfer.bytes.toDouble() / it).toFloat().coerceIn(0f, 1f) }
-                        if (progress == null) LinearProgressIndicator(Modifier.fillMaxWidth())
-                        else LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
-                    }
+                    val progress = transfer.total?.takeIf { it > 0 }?.let { (transfer.bytes.toDouble() / it).toFloat().coerceIn(0f, 1f) }
+                    if (progress == null) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    else LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
                     Text(transfer.message, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
                 }
             }
@@ -341,16 +326,11 @@ internal fun FilesOverview(state: FilesUiState, viewModel: FilesViewModel, defer
         if (deferredCleanup > 0) Text("Files pending cleanup: $deferredCleanup", style = MaterialTheme.typography.bodySmall)
         if (state.cleanupStatus.isNotBlank()) Text(state.cleanupStatus, style = MaterialTheme.typography.bodySmall)
     }
-    val transfer = state.transfer
     if (showTransfer && transfer != null) {
-        val context = LocalContext.current
         AlertDialog(onDismissRequest = { showTransfer = false },
             title = { Text(stringResource(R.string.flipper_files_transfer_details)) },
             text = { Column(Modifier.verticalScroll(rememberScrollState())) {
-                TransferSummary(transfer, viewModel::cancelTransfer) {
-                    context.getSystemService(ClipboardManager::class.java).setPrimaryClip(
-                        ClipData.newPlainText("Flipper transfer", transfer.toString()))
-                }
+                TransferProgress(transfer, viewModel::cancelTransfer)
             } },
             confirmButton = { TextButton(onClick = { showTransfer = false }) { Text(stringResource(R.string.flipper_files_close)) } })
     }

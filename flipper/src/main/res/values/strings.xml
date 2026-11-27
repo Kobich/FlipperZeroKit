@@ -127,4 +127,12 @@
     <string name="flipper_files_close">Close</string>
     <string name="flipper_files_transfer_details">Transfer details</string>
     <string name="flipper_files_title">Files</string>
+    <string name="flipper_files_history">History</string>
+    <string name="flipper_files_history_empty">No transfers yet.</string>
+    <string name="flipper_files_history_completed">Completed</string>
+    <string name="flipper_files_history_failed">Failed</string>
+    <string name="flipper_files_history_canceled">Canceled</string>
+    <string name="flipper_files_history_open_saved">Open saved file</string>
+    <string name="flipper_files_history_no_viewer">No app can open this file. Try opening it in Android Files.</string>
+    <string name="flipper_files_history_no_access">File access expired. Open it in Android Files.</string>
 </resources>
