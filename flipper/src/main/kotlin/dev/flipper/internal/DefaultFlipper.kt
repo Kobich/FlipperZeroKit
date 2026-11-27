@@ -287,9 +287,6 @@ internal class DefaultFlipper(
 
             currentGatt = gatt
 
-            flipperReceiver.reset()
-            startRpcReceiving(gatt)
-
             connectTimeout = scope.launch {
                 val timeout = if (autoConnect) BONDED_CONNECTION_TIMEOUT_MS else CONNECTION_TIMEOUT_MS
                 delay(timeout.milliseconds)
@@ -514,6 +511,8 @@ internal class DefaultFlipper(
         if (!initialFlowControlRead || reportedRpcStatus != RpcStatus.ACTIVE || rpcProbeJob != null) return
 
         // Only the probe can send before public RPC readiness is confirmed.
+        recordConnectionEvent("Start RPC receiver: ignored ${flipperReceiver.ignoredSetupFragments} TX fragments during setup")
+        startRpcReceiving(gatt)
         transportRpcStatus.value = RpcStatus.ACTIVE
         rpcProbeJob = scope.launch {
             recordConnectionEvent("RPC readiness Ping sent to transport")
@@ -562,12 +561,8 @@ internal class DefaultFlipper(
     }
 
     private fun handleIncoming(gatt: BluetoothGatt, value: ByteArray) {
-        // forward TX bytes to incoming Flow/Channel.
         val accepted = flipperReceiver.onReceive(value)
         if (!accepted) failGatt(gatt, BleFailure.RPCError, "TX receiver rejected a fragment")
-
-
-
     }
 
     override fun nextCommandId(): Int = commandIds.getAndIncrement()
@@ -783,10 +778,10 @@ internal class DefaultFlipper(
 
     private fun startRpcReceiving(gatt: BluetoothGatt) {
         if (!isCurrentGatt(gatt)) return
-        rpcReceiveJob?.cancel()
+        val chunks = flipperReceiver.start()
         rpcReceiveJob = scope.launch {
             try {
-                rpcFramer.decode(flipperReceiver.incomingChunks)
+                rpcFramer.decode(chunks)
                     .flowOn(Dispatchers.Default)
                     .collect { message ->
                         Log.d(TAG, "RPC received: commandId=" + message.commandId + ", content=" + message.contentCase + ", status=" + message.commandStatus + ", hasNext=" + message.hasNext)

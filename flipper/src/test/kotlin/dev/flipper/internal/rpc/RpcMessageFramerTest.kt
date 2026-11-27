@@ -3,17 +3,42 @@ package dev.flipper.internal.rpc
 import com.flipperdevices.protobuf.FlipperProto
 import com.flipperdevices.protobuf.system.SystemProto
 import com.google.protobuf.ByteString
+import dev.flipper.internal.transport.BleReceiver
 import java.io.EOFException
 import kotlinx.coroutines.flow.asFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RpcMessageFramerTest {
     private val framer = RpcMessageFramer()
+
+    @Test
+    fun reconnectDiscardsOldTxBeforeDecodingReadinessPing() = runBlocking {
+        val receiver = BleReceiver()
+        receiver.start()
+        assertTrue(receiver.onReceive(byteArrayOf(0))) // Unconsumed bytes from the interrupted session.
+        receiver.close()
+
+        // A one-byte payload with an invalid protobuf tag must not reach the new decoder.
+        assertTrue(receiver.onReceive(byteArrayOf(1, 0)))
+        assertEquals(1, receiver.ignoredSetupFragments)
+
+        val chunks = receiver.start()
+        val ping = FlipperProto.Main.newBuilder().setCommandId(8)
+            .setSystemPingResponse(SystemProto.PingResponse.getDefaultInstance()).build()
+        val frame = framer.encode(ping)
+        assertTrue(receiver.onReceive(frame.copyOfRange(0, 1)))
+        assertTrue(receiver.onReceive(frame.copyOfRange(1, frame.size)))
+        assertEquals(ping, withTimeout(1_000) { framer.decode(chunks).first() })
+        receiver.close()
+    }
 
     @Test
     fun decodesSplitLengthAndPayloadAndAdjacentFrames() = runBlocking {

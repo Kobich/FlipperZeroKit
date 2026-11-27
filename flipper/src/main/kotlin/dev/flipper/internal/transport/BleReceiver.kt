@@ -5,43 +5,38 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.consumeAsFlow
 
 internal class BleReceiver {
-
-
-    private var channel = createChannel()
-
-    /**
-     * Consumer stream of incoming TX fragments
-     */
-    val incomingChunks: Flow<ByteArray>
-        get() = channel.consumeAsFlow()  // TODO(transport): use for Framer
-
+    private var channel: Channel<ByteArray>? = null
+    var ignoredSetupFragments = 0
+        private set
 
     /**
-     * Accepts bytes received from Flipper TX
-     * @return `false` - if the queue is full or closed,
-     *         `true` - otherwise
+     * TX notifications before the readiness probe cannot contain its response.
+     * Discard them so a fragment from the previous session cannot seed the new decoder.
      */
-    fun onReceive(bytes: ByteArray) =
-        bytes.isEmpty() || channel.trySend(bytes.copyOf()).isSuccess
+    fun onReceive(bytes: ByteArray): Boolean {
+        if (bytes.isEmpty()) return true
+        val incoming = channel
+        if (incoming == null) {
+            ignoredSetupFragments++
+            return true
+        }
+        return incoming.trySend(bytes.copyOf()).isSuccess
+    }
 
-
-    private fun createChannel() = Channel<ByteArray>(capacity = BUFFER_CAPACITY)
-
-    /**
-     * Recreates channel
-     */
-    fun reset() {
-        val prevChannel = channel
-
-        channel = createChannel()
-        prevChannel.cancel()
+    fun start(): Flow<ByteArray> {
+        check(channel == null) { "RPC receiver is already running" }
+        val incoming = Channel<ByteArray>(capacity = BUFFER_CAPACITY)
+        channel = incoming
+        return incoming.consumeAsFlow()
     }
 
     /**
      * Fully closes channel and removes all existing elements
      */
     fun close() {
-        channel.cancel()
+        channel?.cancel()
+        channel = null
+        ignoredSetupFragments = 0
     }
 
 
