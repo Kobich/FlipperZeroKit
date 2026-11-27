@@ -37,12 +37,11 @@ internal class FilesViewModel(private val flipper: Flipper, application: Applica
             }.distinctUntilChanged().collect { address ->
                 listing?.cancel()
                 val changedDevice = address != null && lastDevice != null && address != lastDevice
+                if (changedDevice) clearUpload()
                 if (address != null) lastDevice = address
                 local.update { it.copy(rpcReady = address != null, deviceAddress = address, files = emptyList(),
                     hasLoaded = false, isLoading = false, error = null,
-                    path = if (changedDevice) "/ext" else it.path,
-                    upload = if (changedDevice) null else it.upload,
-                    showUploadDialog = if (changedDevice) false else it.showUploadDialog) }
+                    path = if (changedDevice) "/ext" else it.path) }
                 if (address != null) refresh()
             }
         }
@@ -75,9 +74,9 @@ internal class FilesViewModel(private val flipper: Flipper, application: Applica
         }
     }
     fun selectUpload(uri: Uri) {
-        picking?.cancel()
-        local.update { it.copy(upload = null, showUploadDialog = false, isPreparingDocument = true) }
         val request = ++selectionRequest
+        picking?.cancel()
+        local.update { it.copy(upload = null, showUploadDialog = false, isPreparingUpload = true, error = null) }
         picking = viewModelScope.launch {
             try {
                 val selected = ProviderIo.shared.call(uri.toString()) {
@@ -93,15 +92,20 @@ internal class FilesViewModel(private val flipper: Flipper, application: Applica
                     }
                     SelectedUpload(uri, name, size)
                 }
-                local.update { it.copy(upload = selected, showUploadDialog = true, error = null) }
+                local.update { it.copy(upload = selected, showUploadDialog = true, isPreparingUpload = false) }
             } catch (cancel: CancellationException) { throw cancel }
-            catch (error: Exception) { local.update { it.copy(error = error.message ?: error.toString()) } }
+            catch (error: Exception) { local.update { it.copy(error = fileErrorMessage(error)) } }
+            finally {
+                if (request == selectionRequest) local.update { it.copy(isPreparingUpload = false) }
+            }
         }
     }
     fun hideUploadDialog() { local.update { it.copy(showUploadDialog = false) } }
     fun clearUpload() {
+        selectionRequest++
         picking?.cancel()
-        local.update { it.copy(upload = null, showUploadDialog = false) }
+        picking = null
+        local.update { it.copy(upload = null, showUploadDialog = false, isPreparingUpload = false) }
     }
     fun upload(target: String, expectedDevice: String?) {
         val name = target.substringAfterLast('/')
@@ -120,10 +124,10 @@ internal class FilesViewModel(private val flipper: Flipper, application: Applica
         transfers.download(flipper, path, destination, expectedDevice)
     }
     fun prepareDownload(uri: Uri, onReady: () -> Unit) {
-        local.update { it.copy(isPreparingDocument = true) }
+        local.update { it.copy(isPreparingDownload = true) }
         transfers.prepareDownload(uri,
-            onReady = { local.update { it.copy(isPreparingDocument = false) }; onReady() },
-            onFailure = { local.update { it.copy(isPreparingDocument = false) } })
+            onReady = { local.update { it.copy(isPreparingDownload = false) }; onReady() },
+            onFailure = { local.update { it.copy(isPreparingDownload = false) } })
     }
     fun retryCleanup() = transfers.retryCleanup()
     fun cancelTransfer() = transfers.cancel()

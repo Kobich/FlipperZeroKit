@@ -87,6 +87,10 @@ fun FlipperScreen(flipper: Flipper, modifier: Modifier = Modifier, connectionCon
     val overviewListState = rememberLazyListState()
     val filesListState = rememberLazyListState()
     var showFiles by rememberSaveable { mutableStateOf(false) }
+    val closeFiles = {
+        if (state.isPreparingUpload || state.showUploadDialog) files.clearUpload()
+        showFiles = false
+    }
     var allInfoAddress by rememberSaveable { mutableStateOf<String?>(null) }
     val detailDevice = (deviceState.connection as? BleConnectionState.Connected)?.device?.takeIf {
         deviceState.isRpcReady && it.address == allInfoAddress
@@ -98,7 +102,7 @@ fun FlipperScreen(flipper: Flipper, modifier: Modifier = Modifier, connectionCon
     }
     LifecycleEventEffect(Lifecycle.Event.ON_START) { device.onIntent(DeviceIntent.RefreshKnownDevices) }
     BackHandler(enabled = detailDevice != null || showFiles) {
-        if (detailDevice != null) allInfoAddress = null else showFiles = false
+        if (detailDevice != null) allInfoAddress = null else closeFiles()
     }
     LaunchedEffect(allInfoAddress, detailDevice) {
         if (allInfoAddress != null && detailDevice == null) allInfoAddress = null
@@ -108,7 +112,7 @@ fun FlipperScreen(flipper: Flipper, modifier: Modifier = Modifier, connectionCon
         DeviceDetailsPage(detailDevice, deviceState.details, onBack = { allInfoAddress = null },
             onCopyDiagnostics = copyDeviceDiagnostics, modifier = modifier)
     } else if (showFiles) {
-        FilesPage(state, files, actions, deferredCleanup, filesListState, onBack = { showFiles = false }, modifier = modifier)
+        FilesPage(state, files, actions, deferredCleanup, filesListState, onBack = closeFiles, modifier = modifier)
     } else {
         LazyColumn(modifier.fillMaxSize(), state = overviewListState) {
             if (!status.isNullOrBlank()) item("connection-status") { Text(status, Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) }

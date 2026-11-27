@@ -131,12 +131,12 @@ internal fun FilesControls(state: FilesUiState, viewModel: FilesViewModel, actio
         } else {
             Text(stringResource(R.string.flipper_files_connect), style = MaterialTheme.typography.bodySmall)
         }
-        state.transfer?.let { TransferSummary(it, viewModel::cancelTransfer, copyResult) }
+        state.transfer?.takeIf { it.active }?.let { TransferSummary(it, viewModel::cancelTransfer, copyResult) }
 
         state.error?.let { error ->
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(error, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                if (state.transfer == null) CopyResultButton(copyResult)
+                if (state.transfer?.active != true) CopyResultButton(copyResult)
             }
         }
         if (deferredCleanup > 0) {

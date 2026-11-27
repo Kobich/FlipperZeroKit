@@ -13,7 +13,8 @@ internal data class FilesUiState(
     val path: String = "/ext",
     val isLoading: Boolean = false,
     val hasLoaded: Boolean = false,
-    val isPreparingDocument: Boolean = false,
+    val isPreparingUpload: Boolean = false,
+    val isPreparingDownload: Boolean = false,
     val transferBusy: Boolean = false,
     val files: List<StorageEntry> = emptyList(),
     val error: String? = null,
@@ -22,4 +23,6 @@ internal data class FilesUiState(
     val upload: SelectedUpload? = null,
     val showUploadDialog: Boolean = false,
     val deviceAddress: String? = null,
-)
+) {
+    val isPreparingDocument: Boolean get() = isPreparingUpload || isPreparingDownload
+}

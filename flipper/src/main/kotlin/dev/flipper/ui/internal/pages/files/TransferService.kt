@@ -82,7 +82,7 @@ internal class TransferService : Service() {
                 var lastUpdate = 0L
                 operation.state.collect { state ->
                     val now = android.os.SystemClock.elapsedRealtime()
-                    if (state?.active == false || now - lastUpdate >= 500) {
+                    if (state?.active != false && now - lastUpdate >= 500) {
                         lastUpdate = now
                         val allowed = Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(
                             this@TransferService, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
@@ -120,9 +120,10 @@ internal class TransferService : Service() {
         if (wakeLock?.isHeld == true) wakeLock?.release()
         wakeLock = null
         val allowed = Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-        if (allowed && operation.state.value != null) {
+        val result = operation.state.value
+        if (allowed && result != null && !result.successful) {
             try {
-                getSystemService(NotificationManager::class.java).notify(NOTIFICATION, notification(operation.state.value))
+                getSystemService(NotificationManager::class.java).notify(NOTIFICATION, notification(result))
                 detachedResult = true
                 ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_DETACH)
             } catch (_: SecurityException) { ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE) }
