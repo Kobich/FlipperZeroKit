@@ -695,18 +695,31 @@ internal class DefaultFlipper(
                         catch (error: Exception) { Log.w(TAG, "Soft cleanup failed; resetting session", error) }
                     }
                     if (connectionChoice != choice) return@withTimeout
+                    recordConnectionEvent("Transfer recovery: close RPC session and wait before reconnecting")
                     abortTransfer(gatt)
-                    connect(device)
-                    val reconnectChoice = connectionChoice
+                    delay(TRANSFER_RECONNECT_DELAY_MS)
+                    val reconnectChoice = withContext(Dispatchers.Main) {
+                        if (closed || connectionChoice != choice) return@withContext null
+                        recordConnectionEvent("Transfer recovery: reconnecting")
+                        connect(device)
+                        connectionChoice
+                    } ?: return@withTimeout
                     combine(connection, rpcStatus) { state, rpc -> state to rpc }.first { (state, rpc) ->
-                        connectionChoice != reconnectChoice || state is BleConnectionState.Failed ||
+                        connectionChoice != reconnectChoice || state is BleConnectionState.Failed || state == BleConnectionState.Disconnected ||
                             (state is BleConnectionState.Connected && rpc == RpcStatus.ACTIVE)
                     }
                     val ready = connection.value as? BleConnectionState.Connected
-                    if (connectionChoice == reconnectChoice && ready?.device?.address == device.address && rpcStatus.value == RpcStatus.ACTIVE)
+                    if (connectionChoice == reconnectChoice && ready?.device?.address == device.address && rpcStatus.value == RpcStatus.ACTIVE) {
+                        recordConnectionEvent("Transfer recovery: RPC ready")
                         cleanupForGatt(requireRpcGatt(), device.address)
+                    } else if (connectionChoice == reconnectChoice) {
+                        recordConnectionEvent("Transfer recovery: ended with ${connection.value}")
+                    }
                 }
-            } catch (error: Exception) { Log.w(TAG, "Recovery/partial-file cleanup deferred", error) }
+            } catch (error: Exception) {
+                recordConnectionEvent("Transfer recovery: ${error.message ?: error.javaClass.simpleName}")
+                Log.w(TAG, "Recovery/partial-file cleanup deferred", error)
+            }
             finally { _recovering.value = false }
         }
     }
@@ -853,6 +866,7 @@ internal class DefaultFlipper(
         private const val TAG = "Flipper"
         private const val CONNECTION_TIMEOUT_MS = 25_000L
         private const val BONDED_CONNECTION_TIMEOUT_MS = 30_000L
+        private const val TRANSFER_RECONNECT_DELAY_MS = 1_500L
         private const val REQUESTED_ATT_MTU = 512
         private const val MTU_CALLBACK_TIMEOUT_MS = 3_000L
         private const val RPC_PROBE_TIMEOUT_MS = 10_000L
