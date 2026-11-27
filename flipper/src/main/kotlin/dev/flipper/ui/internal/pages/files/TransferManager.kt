@@ -51,7 +51,7 @@ internal class TransferManager private constructor(private val app: Application)
     fun onServiceReady() { ready.complete(Unit) }
     fun onServiceFailure(error: Exception) { finish("Background transfer failed: "+error.message); ready.completeExceptionally(error) }
     fun cancel() {
-        _state.update { if (it?.active == true) it.copy(message = "Canceling transfer, cleaning up, and reconnecting…") else it }
+        _state.update { if (it?.active == true) it.copy(message = "Canceling transfer and cleaning up…") else it }
         job?.cancel()
     }
     fun onServiceDestroyed() { if (_state.value?.active == true) cancel() }

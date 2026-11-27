@@ -17,6 +17,8 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -147,6 +149,55 @@ class StorageRpcTest {
         client.ping(1_000) { request ->
             client.onMessage(reply(request.commandId).setSystemPingResponse(SystemProto.PingResponse.getDefaultInstance()).build()); null
         }
+    }
+
+    @Test fun canceledReadDrainsUntilFinalFrameWithoutWritingMoreChunks() = runBlocking<Unit> {
+        val firstChunk = CompletableDeferred<Unit>()
+        var requestId = 0
+        var writtenChunks = 0
+        var drained = false
+        val readResponse = StorageProto.ReadResponse.newBuilder()
+            .setFile(StorageProto.File.newBuilder().setData(ByteString.copyFromUtf8("chunk"))).build()
+        val caller = launch(start = CoroutineStart.UNDISPATCHED) {
+            client.readFile("/ext/a", 1_000, { request ->
+                requestId = request.commandId
+                client.onMessage(reply(requestId).setHasNext(true).setStorageReadResponse(readResponse).build())
+                null
+            }, onCanceledReadDrained = { drained = true }) {
+                writtenChunks++
+                firstChunk.complete(Unit)
+                awaitCancellation()
+            }
+        }
+        firstChunk.await()
+        caller.cancel()
+        yield()
+        assertFalse(caller.isCompleted)
+        client.onMessage(reply(requestId).setHasNext(true).setStorageReadResponse(readResponse).build())
+        client.onMessage(reply(requestId).setStorageReadResponse(readResponse).build())
+        withTimeout(1_000) { caller.join() }
+        assertTrue(caller.isCancelled)
+        assertTrue(drained)
+        assertEquals(1, writtenChunks)
+    }
+
+    @Test fun disconnectDuringCanceledReadDoesNotReportDrained() = runBlocking<Unit> {
+        val sent = CompletableDeferred<Unit>()
+        var drained = false
+        val caller = launch(start = CoroutineStart.UNDISPATCHED) {
+            client.readFile("/ext/a", 1_000, {
+                sent.complete(Unit)
+                null
+            }, onCanceledReadDrained = { drained = true }) { fail("No chunk expected") }
+        }
+        sent.await()
+        caller.cancel()
+        yield()
+        assertFalse(caller.isCompleted)
+        client.onSessionClosed()
+        withTimeout(1_000) { caller.join() }
+        assertTrue(caller.isCancelled)
+        assertFalse(drained)
     }
 
     @Test fun writeUsesOneIdBoundedChunksAndFinalAckAfterAllData() = runBlocking<Unit> {

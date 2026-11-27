@@ -19,6 +19,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
@@ -35,6 +36,11 @@ internal class RpcClient(private val idleTimeoutMillis: Long = 60_000L, private 
         val messages = Channel<FlipperProto.Main>(128)
         val failure = CompletableDeferred<Nothing>()
         var activityNanos = System.nanoTime()
+
+        suspend fun awaitMessage(): FlipperProto.Main = select {
+            failure.onAwait { it }
+            messages.onReceive { it }
+        }
     }
     private val pending = mutableMapOf<Int, Pending>()
 
@@ -42,6 +48,7 @@ internal class RpcClient(private val idleTimeoutMillis: Long = 60_000L, private 
         timeoutMillis: Long,
         send: suspend (Int) -> Unit,
         allowIdle: Boolean = false,
+        onCanceledReadDrained: (() -> Unit)? = null,
         receive: suspend (FlipperProto.Main) -> Unit,
     ) {
         require(timeoutMillis >= 0) { "timeoutMillis must be positive" }
@@ -49,11 +56,16 @@ internal class RpcClient(private val idleTimeoutMillis: Long = 60_000L, private 
         val response = Pending()
         check(id !in pending) { "Duplicate command ID" }
         pending[id] = response
+        var requestSent = false
+        var lastMessage: FlipperProto.Main? = null
         try {
             val operation: suspend () -> Unit = {
                 coroutineScope {
                     val sender = launch(start = CoroutineStart.UNDISPATCHED) {
-                        try { send(id) }
+                        try {
+                            send(id)
+                            requestSent = true
+                        }
                         catch (cancel: CancellationException) { response.failure.completeExceptionally(cancel); throw cancel }
                     }
                     val watchdog = if (timeoutMillis == 0L && !allowIdle) launch {
@@ -67,10 +79,8 @@ internal class RpcClient(private val idleTimeoutMillis: Long = 60_000L, private 
                     } else null
                     try {
                         do {
-                            val message = select {
-                                response.failure.onAwait { it }
-                                response.messages.onReceive { it }
-                            }
+                            val message = response.awaitMessage()
+                            lastMessage = message
                             receive(message)
                         } while (message.hasNext)
                         sender.join() // Fast replies must still wait for the GATT write acknowledgement.
@@ -81,10 +91,28 @@ internal class RpcClient(private val idleTimeoutMillis: Long = 60_000L, private 
             else if (withTimeoutOrNull(timeoutMillis) { operation(); true } == null) {
                 throw FlipperRpcException(Reason.TIMEOUT, "RPC timed out after $timeoutMillis ms", commandId = id)
             }
+        } catch (cancel: CancellationException) {
+            val last = lastMessage
+            if (onCanceledReadDrained != null && (requestSent || last != null) && drainCanceledRead(response, last)) {
+                onCanceledReadDrained()
+            }
+            throw cancel
         } finally {
             if (pending[id] === response) pending.remove(id)
             response.messages.cancel()
             response.failure.cancel()
+        }
+    }
+
+    private suspend fun drainCanceledRead(response: Pending, last: FlipperProto.Main?): Boolean = withContext(NonCancellable) {
+        try {
+            withTimeoutOrNull(5_000L) {
+                var message = last ?: response.awaitMessage()
+                while (message.hasStorageReadResponse() && message.hasNext) message = response.awaitMessage()
+                message.hasStorageReadResponse()
+            } == true
+        } catch (_: Exception) {
+            false
         }
     }
 
@@ -189,10 +217,11 @@ internal class RpcClient(private val idleTimeoutMillis: Long = 60_000L, private 
     }
 
     suspend fun readFile(path: String, timeoutMillis: Long, send: suspend (FlipperProto.Main) -> BleFailure?,
+        onCanceledReadDrained: (() -> Unit)? = null,
         onChunk: suspend (ByteArray) -> Unit) {
         exchange(timeoutMillis, { id -> sendChecked(FlipperProto.Main.newBuilder().setCommandId(id)
             .setStorageReadRequest(StorageProto.ReadRequest.newBuilder().setPath(path)).build(), send)
-        }) { message ->
+        }, onCanceledReadDrained = onCanceledReadDrained) { message ->
             expect(message, message.hasStorageReadResponse() && message.storageReadResponse.hasFile())
             onChunk(message.storageReadResponse.file.data.toByteArray())
         }

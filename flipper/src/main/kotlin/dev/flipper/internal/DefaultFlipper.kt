@@ -736,21 +736,28 @@ internal class DefaultFlipper(
             require(!file.isDirectory) { "Select a file, not a directory" }
             val digest = MessageDigest.getInstance("MD5")
             var bytes = 0L
+            var readFinished = false
             try {
                 onProgress(TransferProgress(0, file.sizeBytes))
-                rpcClient.readFile(path, timeoutMillis, send) { chunk ->
+                rpcClient.readFile(path, timeoutMillis, send, onCanceledReadDrained = { readFinished = true }) { chunk ->
                     runInterruptible(Dispatchers.IO) { destination.write(chunk); digest.update(chunk) }
                     bytes += chunk.size
                     if (bytes > file.sizeBytes) throw IOException("File grew during download")
                     onProgress(TransferProgress(bytes, file.sizeBytes))
                 }
+                readFinished = true
                 runInterruptible(Dispatchers.IO) { destination.flush() }
                 if (bytes != file.sizeBytes) throw IOException("Size mismatch: expected "+file.sizeBytes+", got "+bytes)
                 val localMd5 = digest.hex()
                 if (localMd5 != rpcClient.md5(path, finalizationTimeout(file.sizeBytes), send)) throw IOException("MD5 mismatch after download")
                 TransferResult(bytes, localMd5, path)
             } catch (error: Exception) {
-                recoverAfterTransfer(gatt, device, choice, reset = true, direct = true)
+                if (error is CancellationException && readFinished && isCurrentGatt(gatt) && rpcStatus.value == RpcStatus.ACTIVE) {
+                    recordConnectionEvent("Download canceled: read stream ended, keeping RPC session")
+                } else {
+                    if (error is CancellationException && !readFinished) recordConnectionEvent("Download canceled: read stream did not drain")
+                    recoverAfterTransfer(gatt, device, choice, reset = true, direct = true)
+                }
                 throw error
             }
         }
