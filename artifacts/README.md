@@ -6,11 +6,11 @@
 
 ## History Preview
 
-Тестовая сборка из коммита `3bbab432de6a9d9e797dc6cf319fd74e80b30c2d` со страницей **History** и отбрасыванием ранних TX-фрагментов при переподключении. Обновляет предыдущий **History Preview** с сохранением настроек и истории. Устанавливается рядом с обычным FlipperZeroKit. [Скачать History Preview APK](FlipperZeroKit-history-preview.apk?raw=true).
+Тестовая сборка из коммита `ff55a8eb25300b4231e0221da4a76d95e1fa73ee` со страницей **History** и коротким ожиданием последнего кадра `Storage.Read` после отмены скачивания. Обновляет предыдущий **History Preview** с сохранением настроек и истории. Устанавливается рядом с обычным FlipperZeroKit. [Скачать History Preview APK](FlipperZeroKit-history-preview.apk?raw=true).
 
 - Application ID `dev.flipper.zerokit.sample.historypreview`.
-- Версия `1.15-rpc-recovery-preview`, код 19.
-- APK SHA-256 `204abee61b150962d1d5ce699f527d4046e579ee16b4214fb81d0e1223bd4714`.
+- Версия `1.15-cancel-drain-preview`, код 20.
+- APK SHA-256 `77150158ac3d46ad5b3cd7ac6fa4dd6506ba746580ff9e3f853e099708067dd4`.
 - Сертификат debug SHA-256 `f8fa40ee846c1f87f31bcc2de757fe388c91761600db483b2420cd0bf1b25aad`.
 
 ## Прототип 1.15
