@@ -227,8 +227,10 @@ private fun TransferProgress(transfer: TransferUi, onCancel: () -> Unit) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(transfer.title, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall,
                     maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
-                IconButton(onClick = onCancel, enabled = !transfer.isCleaningUp) {
-                    Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.flipper_files_cancel_transfer))
+                if (transfer.userCancelable) {
+                    IconButton(onClick = onCancel, enabled = transfer.canCancel) {
+                        Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.flipper_files_cancel_transfer))
+                    }
                 }
             }
             if (progress == null) LinearProgressIndicator(Modifier.fillMaxWidth().padding(end = 8.dp))

@@ -127,6 +127,7 @@ fun FlipperScreen(flipper: Flipper, modifier: Modifier = Modifier, connectionCon
             if (!status.isNullOrBlank()) item("connection-status") { Text(status, Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) }
             item("device") {
                 DeviceRoute(device, deviceState, connectingDevice, copyDeviceDiagnostics,
+                    disconnectEnabled = !(state.transferBusy && state.transfer?.userCancelable == false),
                     onShowAllInfo = { allInfoAddress = it })
             }
             item("files-overview") {

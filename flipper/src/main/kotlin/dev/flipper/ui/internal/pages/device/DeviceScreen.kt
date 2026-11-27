@@ -68,6 +68,7 @@ internal fun DeviceRoute(
     state: DeviceUiState,
     connectingDevice: BleDevice?,
     onCopyDiagnostics: () -> Unit,
+    disconnectEnabled: Boolean,
     onShowAllInfo: (String) -> Unit,
 ) {
     val context = LocalContext.current
@@ -118,6 +119,7 @@ internal fun DeviceRoute(
         connectingDevice = connectingDevice,
         permissionDenied = permissionDenied,
         enableDenied = enableDenied,
+        disconnectEnabled = disconnectEnabled,
         onScan = { requestAction(EntryAction.SCAN) },
         onKnownDevices = { requestAction(EntryAction.KNOWN_DEVICES) },
         onStopScan = { viewModel.onIntent(DeviceIntent.StopScan) },
@@ -138,6 +140,7 @@ private fun DeviceScreen(
     connectingDevice: BleDevice?,
     permissionDenied: Boolean,
     enableDenied: Boolean,
+    disconnectEnabled: Boolean,
     onScan: () -> Unit,
     onKnownDevices: () -> Unit,
     onStopScan: () -> Unit,
@@ -169,7 +172,7 @@ private fun DeviceScreen(
                     details = state.details,
                     onShowAllInfo = { onShowAllInfo(connection.device.address) },
                 ) {
-                    DeviceActions(!state.details.isLoading, sendPing, onRefresh, onDisconnect)
+                    DeviceActions(!state.details.isLoading, disconnectEnabled, sendPing, onRefresh, onDisconnect)
                 }
             }
             pendingDevice != null -> {
@@ -183,7 +186,7 @@ private fun DeviceScreen(
                         IconButton(onClick = onCopyDiagnostics) {
                             Icon(Icons.Outlined.ContentCopy, contentDescription = stringResource(R.string.flipper_copy_diagnostics))
                         }
-                        DisconnectButton(onDisconnect)
+                        DisconnectButton(onDisconnect, disconnectEnabled)
                     }
                 }
             }
@@ -213,6 +216,7 @@ private fun DeviceScreen(
 @Composable
 private fun DeviceActions(
     refreshEnabled: Boolean,
+    disconnectEnabled: Boolean,
     onPing: () -> Unit,
     onRefresh: () -> Unit,
     onDisconnect: () -> Unit,
@@ -224,15 +228,15 @@ private fun DeviceActions(
         IconButton(onClick = onRefresh, enabled = refreshEnabled) {
             Icon(Icons.Outlined.Refresh, contentDescription = stringResource(R.string.flipper_refresh_info))
         }
-        DisconnectButton(onDisconnect)
+        DisconnectButton(onDisconnect, disconnectEnabled)
     }
 }
 
 @Composable
-private fun DisconnectButton(onClick: () -> Unit) {
-    IconButton(onClick = onClick) {
+private fun DisconnectButton(onClick: () -> Unit, enabled: Boolean) {
+    IconButton(onClick = onClick, enabled = enabled) {
         Icon(Icons.Outlined.LinkOff, contentDescription = stringResource(R.string.flipper_disconnect_device),
-            tint = MaterialTheme.colorScheme.error)
+            tint = if (enabled) MaterialTheme.colorScheme.error else androidx.compose.material3.LocalContentColor.current)
     }
 }
 

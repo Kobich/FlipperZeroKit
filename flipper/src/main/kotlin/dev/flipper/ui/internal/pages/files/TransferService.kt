@@ -70,7 +70,7 @@ internal class TransferService : Service() {
         if (Build.VERSION.SDK_INT >= 26) notifications.createNotificationChannel(
             NotificationChannel(CHANNEL, "Flipper file transfers", NotificationManager.IMPORTANCE_LOW))
         try {
-            ServiceCompat.startForeground(this, NOTIFICATION, notification(null),
+            ServiceCompat.startForeground(this, NOTIFICATION, notification(operation.state.value),
                 if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE else 0)
             // A bounded lease is renewed only while a user-started operation remains active.
             wakeLock = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Flipper:Transfer").apply { setReferenceCounted(false); acquire(600_000L) }
@@ -95,8 +95,6 @@ internal class TransferService : Service() {
     }
 
     private fun notification(state: TransferUi?): android.app.Notification {
-        val cancel = PendingIntent.getService(this, 0, Intent(this, TransferService::class.java).setAction(CANCEL),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val launch = packageManager.getLaunchIntentForPackage(packageName)?.let {
             PendingIntent.getActivity(this, 1, it, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         }
@@ -108,8 +106,12 @@ internal class TransferService : Service() {
             .setStyle(NotificationCompat.BigTextStyle().bigText(state?.message ?: "Preparing…"))
             .setOnlyAlertOnce(true).setContentIntent(launch)
         if (state?.active != false) builder.setOngoing(true).setProgress(100, percent, total == null || total == 0L)
-            .addAction(0, "Cancel", cancel)
         else builder.setOngoing(false).setAutoCancel(true)
+        if (state?.canCancel == true) {
+            val cancel = PendingIntent.getService(this, 0, Intent(this, TransferService::class.java).setAction(CANCEL),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            builder.addAction(0, "Cancel", cancel)
+        }
         return builder.build()
     }
 

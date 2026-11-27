@@ -51,10 +51,11 @@ internal class TransferManager private constructor(private val app: Application)
     fun onServiceReady() { ready.complete(Unit) }
     fun onServiceFailure(error: Exception) { finish("Background transfer failed: "+error.message); ready.completeExceptionally(error) }
     fun cancel() {
+        if (_state.value?.canCancel != true) return
         _state.update { if (it?.active == true) it.copy(message = "Canceling transfer and cleaning up…") else it }
         job?.cancel()
     }
-    fun onServiceDestroyed() { if (_state.value?.active == true) cancel() }
+    fun onServiceDestroyed() { if (_state.value?.active == true) job?.cancel() }
 
     private fun fail(error: Exception, suffix: String = "") {
         _state.update { it?.copy(diagnostic = error.stackTraceToString()) }
@@ -102,10 +103,10 @@ internal class TransferManager private constructor(private val app: Application)
         removed
     }
 
-    private fun start(client: Flipper, title: String, total: Long?, beforeOperationFailure: suspend () -> Unit = {},
-        operation: suspend () -> Unit): Boolean {
+    private fun start(client: Flipper, title: String, total: Long?, userCancelable: Boolean,
+        beforeOperationFailure: suspend () -> Unit = {}, operation: suspend () -> Unit): Boolean {
         if (_busy.value) return false
-        val transfer = TransferUi(++sequence, title, total = total)
+        val transfer = TransferUi(++sequence, title, total = total, userCancelable = userCancelable)
         _busy.value = true
         _state.value = transfer
         ready = CompletableDeferred()
@@ -173,7 +174,7 @@ internal class TransferManager private constructor(private val app: Application)
     }
 
     fun upload(client: Flipper, target: String, source: SelectedUpload, expectedDevice: String?) {
-        start(client, "Uploading $target", source.sizeBytes) {
+        start(client, "Uploading $target", source.sizeBytes, userCancelable = true) {
             try {
                 val result = withUri(source.uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) {
                     withContext(Dispatchers.IO) {
@@ -199,7 +200,7 @@ internal class TransferManager private constructor(private val app: Application)
     }
 
     fun download(client: Flipper, path: String, destination: Uri, expectedDevice: String?) {
-        val started = start(client, "Downloading $path", null, beforeOperationFailure = {
+        val started = start(client, "Downloading $path", null, userCancelable = false, beforeOperationFailure = {
             // CreateDocument already created an empty destination even if FGS never became ready.
             removePartial(destination)
         }) {
