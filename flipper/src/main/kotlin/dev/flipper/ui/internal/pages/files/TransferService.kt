@@ -22,8 +22,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /** Only active file operations use a connectedDevice foreground service. No idle keep-alive. */
@@ -41,19 +39,20 @@ internal class TransferService : Service() {
         private const val CANCEL = "dev.flipper.action.CANCEL_TRANSFER"
         private var pending: TransferManager? = null
         private var service: TransferService? = null
-        private val _active = MutableStateFlow(false)
-        val active = _active.asStateFlow()
+
         fun start(context: Context, manager: TransferManager) {
             check(pending == null || pending === manager) { "Another transfer is already in progress" }
             pending = manager
-            _active.value = true
-            try { ContextCompat.startForegroundService(context, Intent(context, TransferService::class.java)) }
-            catch (error: Exception) { pending = null; _active.value = false; throw error }
+            try {
+                ContextCompat.startForegroundService(context, Intent(context, TransferService::class.java))
+            } catch (error: Exception) {
+                pending = null
+                throw error
+            }
         }
         fun finish(manager: TransferManager) {
             if (pending !== manager) return
             pending = null
-            _active.value = false
             service?.endOperation(manager)
         }
     }
@@ -139,7 +138,7 @@ internal class TransferService : Service() {
         if (wakeLock?.isHeld == true) wakeLock?.release()
         wakeLock = null
         if (service === this) service = null
-        if (pending === manager) { pending = null; _active.value = false }
+        if (pending === manager) pending = null
         if (!detachedResult) ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         super.onDestroy()
     }

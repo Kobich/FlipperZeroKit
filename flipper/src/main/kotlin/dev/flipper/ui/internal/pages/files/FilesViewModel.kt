@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import dev.flipper.api.Flipper
 import dev.flipper.api.model.BleConnectionState
 import dev.flipper.api.model.RpcStatus
+import dev.flipper.internal.io.ProviderIo
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,15 +18,16 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import dev.flipper.internal.io.ProviderIo
 
 internal class FilesViewModel(private val flipper: Flipper, application: Application) : ViewModel() {
     private val resolver = application.contentResolver
     private val transfers = TransferManager.get(flipper, application)
     val history = transfers.historyEntries
+    val transferBusy = transfers.busy
     private val local = MutableStateFlow(FilesUiState())
-    val state = combine(local, transfers.state, transfers.localCleanupStatus, transfers.busy) { screen, operation, cleanup, busy -> screen.copy(transfer = operation, cleanupStatus = cleanup, transferBusy = busy) }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, FilesUiState())
+    val state = combine(local, transfers.state, transfers.localCleanupStatus, transferBusy) { screen, operation, cleanup, busy ->
+        screen.copy(transfer = operation, cleanupStatus = cleanup, transferBusy = busy)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, FilesUiState())
     private var listing: Job? = null
     private var picking: Job? = null
     private var lastDevice: String? = null
@@ -47,15 +49,16 @@ internal class FilesViewModel(private val flipper: Flipper, application: Applica
             }
         }
         viewModelScope.launch {
-            transfers.state.collect { operation ->
-                if (operation?.active == false) {
-                    if (operation.successful) local.update { it.copy(upload = null, showUploadDialog = false) }
-                    if (operation.successful || !local.value.hasLoaded) refresh()
-                }
+            combine(transfers.state, transferBusy) { operation, busy ->
+                operation?.takeIf { !it.active && !busy }
+            }.distinctUntilChanged().collect { result ->
+                if (result == null) return@collect
+                if (result.successful) local.update { it.copy(upload = null, showUploadDialog = false) }
+                if (result.successful || !local.value.hasLoaded) refresh()
             }
         }
     }
-    private fun available() = local.value.rpcReady && !local.value.isPreparingDocument && !transfers.busy.value
+    private fun available() = local.value.rpcReady && !local.value.isPreparingDocument && !transferBusy.value
     fun open(path: String) {
         if (!available()) return
         listing?.cancel()
@@ -112,8 +115,9 @@ internal class FilesViewModel(private val flipper: Flipper, application: Applica
         val name = target.substringAfterLast('/')
         val source = local.value.upload ?: return
         if (!available()) return
-        if (name.isBlank() || name == "." || name == ".." || name.any { it.code !in 32..126 || it == '/' || it.code == 92 }) {
-            local.update { it.copy(error = "Enter an ASCII filename without path separators.") }; return
+        if (!isValidUploadName(name)) {
+            local.update { it.copy(error = "Use 1–255 ASCII characters without path separators.") }
+            return
         }
         listing?.cancel()
         local.update { it.copy(isLoading = false, error = null) }

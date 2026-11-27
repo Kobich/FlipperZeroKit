@@ -196,8 +196,7 @@ private fun FilesToolbar(path: String, enabled: Boolean, loading: Boolean, onOpe
 @Composable
 private fun UploadDialog(selected: SelectedUpload, path: String, actions: FilesActions, enabled: Boolean,
     onDismiss: () -> Unit, onSend: () -> Unit) {
-    val validName = actions.name.isNotBlank() && actions.name != "." && actions.name != ".." &&
-        actions.name.length <= 255 && actions.name.all { it.code in 32..126 && it != '/' && it.code != 92 }
+    val validName = isValidUploadName(actions.name)
     AlertDialog(onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.flipper_files_upload)) },
         text = {

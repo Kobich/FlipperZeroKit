@@ -58,16 +58,20 @@ import dev.flipper.ui.internal.pages.files.rememberFilesActions
 fun FlipperScreen(flipper: Flipper, modifier: Modifier = Modifier, connectionController: FlipperConnectionController? = null) {
     val context = LocalContext.current
     val application = context.applicationContext as Application
+    val filesFactory = remember(flipper, application) {
+        viewModelFactory { initializer { FilesViewModel(flipper, application) } }
+    }
+    val files: FilesViewModel = viewModel(key = "flipper.files", factory = filesFactory)
     val controller = if (connectionController != null) connectionController else {
-        val factory = remember(flipper, application) { viewModelFactory { initializer { ConnectionViewModel(flipper, application) } } }
+        val factory = remember(flipper, application, files) {
+            viewModelFactory { initializer { ConnectionViewModel(flipper, application, files.transferBusy) } }
+        }
         viewModel<ConnectionViewModel>(key = "flipper.connection", factory = factory)
     }
     val deviceFactory = remember(flipper, controller, application) {
         viewModelFactory { initializer { DeviceViewModel(flipper, controller, DeviceDetailsStore(application)) } }
     }
-    val filesFactory = remember(flipper, application) { viewModelFactory { initializer { FilesViewModel(flipper, application) } } }
     val device: DeviceViewModel = viewModel(key = "flipper.device", factory = deviceFactory)
-    val files: FilesViewModel = viewModel(key = "flipper.files", factory = filesFactory)
     val state by files.state.collectAsStateWithLifecycle()
     val deviceState by device.state.collectAsStateWithLifecycle()
     val cleanup by flipper.pendingFileCleanup.collectAsStateWithLifecycle()

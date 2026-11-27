@@ -553,11 +553,9 @@ internal class DefaultFlipper(
     }
 
     private fun handleFlowControlValue(value: ByteArray) {
-        flipperSender.setAvailableBytes(value.toInt(ByteOrder.BIG_ENDIAN) ?: 0)
-        Log.d(TAG, "FLOW_CONTROL: ${value.toInt(ByteOrder.BIG_ENDIAN) ?: 0} bytes")
-
-        // TODO(transport): notify sender and update
-        // the active transmission credit window.
+        val availableBytes = value.toInt(ByteOrder.BIG_ENDIAN) ?: 0
+        flipperSender.setAvailableBytes(availableBytes)
+        Log.d(TAG, "FLOW_CONTROL: $availableBytes bytes")
     }
 
     private fun handleIncoming(gatt: BluetoothGatt, value: ByteArray) {
