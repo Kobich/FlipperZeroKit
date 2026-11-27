@@ -14,6 +14,7 @@ import dev.flipper.api.model.BleDevice
 import dev.flipper.api.model.BleFailure
 import dev.flipper.api.model.KnownDevicesResult
 import dev.flipper.api.model.RpcStatus
+import dev.flipper.internal.DefaultFlipper
 import dev.flipper.ui.FlipperConnectionController
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -73,12 +74,15 @@ internal class ConnectionViewModel(private val flipper: Flipper, application: Ap
         if (!explicit && exhaustedAt != Long.MIN_VALUE && now - exhaustedAt < 60_000) return
         _connectingDevice.value = device
         retryJob = viewModelScope.launch {
+            val client = flipper as? DefaultFlipper
+            val mode = if (explicit) "Manual" else "Automatic"
             if (!explicit) {
                 val known = flipper.getKnownDevices()
                 if (known is KnownDevicesResult.Available && known.devices.none {
                         it.isBonded && it.device.address.equals(device.address, ignoreCase = true)
                     }) {
                     _status.value = "${device.name} is no longer paired. Select a device."
+                    client?.recordConnectionEvent("Automatic connect skipped: ${device.address} is no longer paired")
                     _connectingDevice.value = null
                     return@launch
                 }
@@ -88,14 +92,20 @@ internal class ConnectionViewModel(private val flipper: Flipper, application: Ap
                 if ((!foreground && !explicit) || !automatic || !allowed()) break
                 delay(pauses[attempt])
                 _status.value = "Connecting, attempt "+(attempt+1)+" of 3"
+                client?.recordConnectionEvent("$mode connect attempt ${attempt + 1}/3: ${device.address}")
                 try { flipper.connect(device) }
                 catch (cancel: CancellationException) { throw cancel }
-                catch (error: Exception) { _status.value = "Connection unavailable: "+error.message; break }
+                catch (error: Exception) {
+                    client?.recordConnectionEvent("$mode connect exception: ${error.message ?: error.javaClass.simpleName}")
+                    _status.value = "Connection unavailable: "+error.message
+                    break
+                }
                 val result = withTimeoutOrNull(95_000) {
                     combine(flipper.connection, flipper.rpcStatus) { state, rpc -> state to rpc }.first { (state, rpc) ->
                         state.canReconnect() || (state is BleConnectionState.Connected && rpc == RpcStatus.ACTIVE)
                     }
                 }
+                client?.recordConnectionEvent("$mode connect outcome: ${result?.first ?: "timed out"}, RPC ${result?.second ?: flipper.rpcStatus.value}")
                 if (result?.first is BleConnectionState.Connected) {
                     _connectingDevice.value = null
                     _status.value = ""

@@ -23,7 +23,7 @@ internal class BlePairingManager(
     private val scope: CoroutineScope,
     private val hasConnectPermission: () -> Boolean,
     private val onPairingStarted: (BleDevice) -> Unit,
-    private val onSuccessBonding: (remote: BluetoothDevice, device: BleDevice, alreadyBonded: Boolean) -> Unit,
+    private val onSuccessBonding: (remote: BluetoothDevice, device: BleDevice, autoConnect: Boolean) -> Unit,
     private val onFailure: (BleFailure) -> Unit,
 ) {
     private val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
@@ -87,7 +87,7 @@ internal class BlePairingManager(
      * Reuses Android's bonded device record before falling back to a lookup by address.
      */
     @SuppressLint("MissingPermission")
-    fun connect(device: BleDevice) {
+    fun connect(device: BleDevice, direct: Boolean) {
         clearBondWaiting()
 
         if (!hasConnectPermission()) {
@@ -105,7 +105,7 @@ internal class BlePairingManager(
                 ?: bluetooth.getRemoteDevice(device.address)
 
             if (remote.bondState == BluetoothDevice.BOND_BONDED) {
-                onSuccessBonding(remote, device, true)
+                onSuccessBonding(remote, device, !direct)
                 return
             }
 

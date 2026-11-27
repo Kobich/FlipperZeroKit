@@ -135,9 +135,9 @@ internal class DefaultFlipper(
 
     fun recentConnectionEvents(): List<String> = connectionEvents.toList()
 
-    private fun recordConnectionEvent(event: String) {
-        if (connectionEvents.size == 24) connectionEvents.removeFirst()
-        connectionEvents.addLast(event)
+    internal fun recordConnectionEvent(event: String) {
+        if (connectionEvents.size == 96) connectionEvents.removeFirst()
+        connectionEvents.addLast("[${android.os.SystemClock.elapsedRealtime()} ms] $event")
         Log.d(TAG, event)
     }
 
@@ -211,20 +211,19 @@ internal class DefaultFlipper(
     }
 
     override suspend fun connect(device: BleDevice) {
-        withContext(Dispatchers.Main) {
-            connectionChoice++
-            check(!closed) { "Flipper is closed" }
-            bleScanner.stop()
-            blePairingManager.clearBondWaiting()
-            closeCurrentGatt()
-            recordConnectionEvent("Connect to ${device.name}")
+        withContext(Dispatchers.Main) { connectOnMain(device, direct = false) }
+    }
 
-            if (!permissionChecker.checkBluetoothReady(scan = false, onFail = ::fail)) {
-                return@withContext
-            }
+    private fun connectOnMain(device: BleDevice, direct: Boolean) {
+        connectionChoice++
+        check(!closed) { "Flipper is closed" }
+        bleScanner.stop()
+        blePairingManager.clearBondWaiting()
+        closeCurrentGatt()
+        recordConnectionEvent("Connect to ${device.name} (${device.address})")
 
-            blePairingManager.connect(device)
-        }
+        if (!permissionChecker.checkBluetoothReady(scan = false, onFail = ::fail)) return
+        blePairingManager.connect(device, direct)
     }
 
     override suspend fun disconnect() {
@@ -684,7 +683,8 @@ internal class DefaultFlipper(
     }
 
     /** A user choosing another device/disconnecting always wins over operation recovery. */
-    private suspend fun recoverAfterTransfer(gatt: BluetoothGatt, device: BleDevice, choice: Long, reset: Boolean) {
+    private suspend fun recoverAfterTransfer(gatt: BluetoothGatt, device: BleDevice, choice: Long, reset: Boolean,
+        direct: Boolean = false) {
         withContext(NonCancellable) {
             _recovering.value = true
             try {
@@ -701,7 +701,7 @@ internal class DefaultFlipper(
                     val reconnectChoice = withContext(Dispatchers.Main) {
                         if (closed || connectionChoice != choice) return@withContext null
                         recordConnectionEvent("Transfer recovery: reconnecting")
-                        connect(device)
+                        connectOnMain(device, direct)
                         connectionChoice
                     } ?: return@withTimeout
                     combine(connection, rpcStatus) { state, rpc -> state to rpc }.first { (state, rpc) ->
@@ -755,7 +755,7 @@ internal class DefaultFlipper(
                 if (localMd5 != rpcClient.md5(path, finalizationTimeout(file.sizeBytes), send)) throw IOException("MD5 mismatch after download")
                 TransferResult(bytes, localMd5, path)
             } catch (error: Exception) {
-                recoverAfterTransfer(gatt, device, choice, reset = true)
+                recoverAfterTransfer(gatt, device, choice, reset = true, direct = true)
                 throw error
             }
         }
